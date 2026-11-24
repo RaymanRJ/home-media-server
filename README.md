@@ -285,7 +285,7 @@ repo's [workflow](.github/workflows/outside-check.yaml) does (how that works wit
 ```
 setup.sh                      sets everything up; safe to re-run
 .env.example                  every setting, explained (setup.sh copies it to .env)
-stacks/
+stacks/                       one folder per stack, each with a README on what's in it
   media/                      Jellyfin, Caddy, DuckDNS and Route 53 updaters, the download apps
   monitoring/                 Beszel, Scrutiny, watchdog, weekly report, backup
   samba/                      Samba
