@@ -1,7 +1,11 @@
-# The media stack: Jellyfin, Caddy in front of it, the dns-updater, and the download apps (the
-# `downloads` profile, on when COMPOSE_PROFILES in .env includes it). Every value that differs
-# between machines comes from the repo's .env (this folder's .env links to it); this machine's GPU
-# goes in compose.override.yaml here, which Compose loads on its own (copy the .example).
+# The media stack: Jellyfin, always; the rest only with their profile in COMPOSE_PROFILES (.env):
+#   https      Caddy: HTTPS on your own name, for watching away from home
+#   duckdns    keeps a free yourname.duckdns.org name on your home IP (no AWS)
+#   route53    keeps a Route 53 domain on your home IP (AWS; see terraform/)
+#   downloads  Seerr, Sonarr, Radarr, Prowlarr, FlareSolverr, qBittorrent, Bazarr, Cleanuparr, Recyclarr
+# Every value that differs between machines comes from the repo's .env (this folder's .env links to
+# it); this machine's GPU goes in compose.override.yaml here, which Compose loads on its own (copy
+# the .example).
 name: media
 
 # Health check timing for every service: a check a minute, unhealthy after three
@@ -24,7 +28,8 @@ services:
       - ${MEDIA_POOL}:/media:ro
     restart: unless-stopped
     environment:
-      - JELLYFIN_PublishedServerUrl=https://${JELLYFIN_DOMAIN}
+      # The address Jellyfin tells apps to use: the HTTPS name if there is one, else its LAN address.
+      - JELLYFIN_PublishedServerUrl=${JELLYFIN_DOMAIN:+https://${JELLYFIN_DOMAIN}}
       # Without it the container runs on UTC, so scheduled tasks (trickplay at 3:00) run at the wrong hour.
       - TZ=${TZ}
     # The image's own check (its /health), with more time to start: an upgrade's database migration
@@ -34,9 +39,12 @@ services:
       start_period: 15m
 
   # Terminates HTTPS on ports 80 and 443 and forwards to Jellyfin on localhost:8096, and to Seerr.
+  # Needs JELLYFIN_DOMAIN pointing at the home IP (duckdns or route53, below) and the router
+  # forwarding 80 and 443 here (docs/router.md).
   caddy:
     image: caddy:2.11
     container_name: caddy
+    profiles: ["https"]
     network_mode: host
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
@@ -44,7 +52,9 @@ services:
       - ${CONFIG_ROOT}/.caddy/config:/config
     environment:
       - JELLYFIN_DOMAIN
-      - SEERR_DOMAIN
+      # Without a name for Seerr, a .localhost one: Caddy gives it its own certificate, and nothing
+      # outside the server can reach it.
+      - SEERR_DOMAIN=${SEERR_DOMAIN:-seerr.localhost}
     depends_on:
       - jellyfin
     restart: unless-stopped
@@ -53,12 +63,34 @@ services:
       <<: *health
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:2019/config/"]
 
-  # Keeps the domain's A records in Route 53 on the home IP (see dns-updater/update-dns.sh), with
-  # AWS credentials from IAM Roles Anywhere. ~/.dns-updater holds the server's cert.pem and key.pem
-  # from Terraform; there's no access key.
+  # Keeps a free DuckDNS name (SUBDOMAIN.duckdns.org) on the home IP, checking every five minutes.
+  # The name and token come from duckdns.org after signing in. Its log is in ~/.duckdns.
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:16e9a751-ls99
+    container_name: duckdns
+    profiles: ["duckdns"]
+    volumes:
+      - ${CONFIG_ROOT}/.duckdns:/config
+    environment:
+      - SUBDOMAINS=${DUCKDNS_SUBDOMAIN:-}
+      - TOKEN=${DUCKDNS_TOKEN:-}
+      - LOG_FILE=true
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    restart: unless-stopped
+    # The latest update in its log succeeded: a wrong name or token fails here (DuckDNS answers KO).
+    healthcheck:
+      <<: *health
+      test: ["CMD-SHELL", "grep -E 'updated at|successful|went wrong' /config/duck.log | tail -n 1 | grep -qE 'updated at|successful'"]
+
+  # The AWS alternative to duckdns: keeps the domain's A records in Route 53 on the home IP (see
+  # dns-updater/update-dns.sh), with AWS credentials from IAM Roles Anywhere. ~/.dns-updater holds
+  # the server's cert.pem and key.pem from Terraform; there's no access key.
   dns-updater:
     build: ./dns-updater
     container_name: dns-updater
+    profiles: ["route53"]
     volumes:
       - ${CONFIG_ROOT}/.dns-updater:/certs:ro
     environment:
@@ -75,7 +107,7 @@ services:
       <<: *health
       test: ["CMD-SHELL", "test -n \"$$(find /tmp/healthy -mmin -15)\""]
 
-  # --- Downloads ---------------------------------------------------------
+  # --- Downloads (the `downloads` profile) ----------------------------------------------------
   # Prowlarr finds releases, Sonarr (TV) and Radarr (movies) pick them, qBittorrent downloads them
   # to /media/downloads, and Sonarr and Radarr file them into the library and tell Jellyfin. Home
   # only: nothing here is forwarded by the router. All of them see the pool at /media, the same

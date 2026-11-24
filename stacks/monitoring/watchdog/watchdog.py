@@ -97,6 +97,9 @@ outbox = []  # (subject, body) not sent yet
 
 
 def send_pending():
+    if not os.environ.get("SMTP_URL"):
+        outbox.clear()  # no email set up: the log above is the only record
+        return
     u = urllib.parse.urlsplit(os.environ["SMTP_URL"])
     q = urllib.parse.parse_qs(u.query)
     while outbox:

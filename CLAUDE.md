@@ -5,10 +5,17 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 ## Overview
 
 Config for a self-hosted media server on one Linux machine: three Docker Compose stacks, systemd
-units that run them, and Terraform for the AWS side. There's no application code to build and no
-test suite; the Python and shell scripts are small and use only their standard libraries.
+units that run them, a setup script, and an optional Terraform setup for AWS. There's no
+application code to build and no test suite; the Python and shell scripts are small and use only
+their standard libraries.
 
-The repo is cloned on the server and run from there (by default `/opt/home-media-server`). Changes
+**It's meant for people who aren't very technical, and nothing may require AWS.** Every
+AWS-backed part is optional (the `route53` profile, `terraform/`, `outside-check/`), and each has a
+free, simpler alternative documented in the README's "Choose your setup", or the README says
+plainly that there isn't one (the maintenance page). Keep it that way: a new feature works without
+an AWS account, and the README explains it in plain words.
+
+The repo is cloned on the server and run from there (anywhere; `setup.sh` points the units at it). Changes
 usually happen on another machine and reach the server by `git pull`, followed by restarting the
 affected stack. Terraform runs from any machine with AWS credentials. Unless you're on the server
 itself, you can't run the stacks: say what the user needs to run on the server, and in what order.
@@ -18,16 +25,18 @@ Notes about the user's own server (hardware, drives, what's set up, decisions) b
 
 ## Layout
 
-- `stacks/media/`: Jellyfin, Caddy (HTTPS for Jellyfin and Seerr, `Caddyfile`) and the dns-updater
-  (`dns-updater/`). The download apps (qBittorrent, Prowlarr, FlareSolverr, Sonarr, Radarr, Bazarr,
-  Seerr, Cleanuparr, Recyclarr) are in the `downloads` profile, enabled by `COMPOSE_PROFILES` in
-  `.env`.
+- `stacks/media/`: Jellyfin, always; the rest by profile, enabled by `COMPOSE_PROFILES` in `.env`:
+  `https` (Caddy, `Caddyfile`, HTTPS for Jellyfin and Seerr), `duckdns` (a free DuckDNS name kept on
+  the home IP), `route53` (the AWS alternative, `dns-updater/`), and `downloads` (qBittorrent,
+  Prowlarr, FlareSolverr, Sonarr, Radarr, Bazarr, Seerr, Cleanuparr, Recyclarr).
 - `stacks/monitoring/`: Beszel and its agent, Scrutiny (`scrutiny/collector.yaml`), the watchdog
   (`watchdog/`), and two run-only services started by timers: `weekly-report` (profile `report`)
   and `backup` (profile `backup`, restic to an SMB share).
 - `stacks/samba/`: the Samba image (Ubuntu 24.04's Samba), `smb.conf`, and the Avahi service file
   for mDNS (`avahi/smb.service`, copied to `/etc/avahi/services/` on the host).
 - `.env` (gitignored, from `.env.example`) at the repo root: every path, ID, domain and secret.
+  `SMTP_URL` is the one email setting (any provider; Scrutiny, the watchdog and the weekly report
+  all use it); empty means no email, and the watchdog then only logs.
   Each stack reads it through its committed `.env` symlink (`stacks/<name>/.env -> ../../.env`).
 - `stacks/<name>/compose.override.yaml` (gitignored, from the `.example` beside it): this machine's
   hardware (GPU device, disks by serial, drive mounts, extra shares). Compose merges it in on its own.
@@ -37,17 +46,20 @@ Notes about the user's own server (hardware, drives, what's set up, decisions) b
   the repo's real path and the machine's Docker (the snap or not), and `pool.conf` from
   `MEDIA_POOL`. Units use `Wants=docker.service`, never `Requires=`: a drop-in can't undo a
   `Requires`, and snap Docker has no `docker.service`.
-- `setup.sh`: creates `.env` (then stops), each app's data folder, checks every stack renders,
-  installs the units and Avahi file, enables them (`--start` starts them, `--dry-run` only prints).
+- `setup.sh`: creates `.env` with this machine's user, time zone and folders (then stops), each
+  enabled part's data folder, checks `.env` and that every stack renders,
+  installs the units and Avahi file, enables them, and the backup and report timers only once their
+  settings exist (`--start` starts them, `--dry-run` only prints).
   Keep it idempotent and POSIX `sh`; it must never overwrite `.env` or a `compose.override.yaml`.
-- `terraform/`: Route 53 records, IAM Roles Anywhere for the dns-updater, SES for alert email, and
+- `terraform/` (optional, AWS): Route 53 records, IAM Roles Anywhere for the dns-updater, SES for alert email, and
   the outside check (`monitor.tf`, `maintenance.tf`). Real values only in gitignored `backend.hcl`
   and `site.auto.tfvars`. `.terraform.lock.hcl` is committed.
-- `outside-check/`: the Lambda (`check.py`) that checks the site from AWS every five minutes, emails
+- `outside-check/` (optional, AWS): the Lambda (`check.py`) that checks the site from AWS every five minutes, emails
   on change, and serves `maintenance.html` while the house is offline. Deployed by
   `.github/workflows/outside-check.yaml` only when the repository variable `OUTSIDE_CHECK_DEPLOY` is
   `true`.
-- `docs/router.md`: the router's settings (port forwards), which live in no config file.
+- `docs/router.md`: the router's settings (port forwards, only for `https`), which live in no
+  config file.
 
 ## Conventions
 

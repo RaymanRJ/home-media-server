@@ -71,7 +71,7 @@ services:
       # Daily at 02:30, before the 3:00 trickplay run keeps the drives busy; also once at startup.
       - COLLECTOR_CRON_SCHEDULE=30 2 * * *
       # Where failure warnings go: an SMTP URL from .env.
-      - SCRUTINY_NOTIFY_URLS
+      - SCRUTINY_NOTIFY_URLS=${SMTP_URL:-}
     restart: unless-stopped
     # Its API. After a reboot its start can hang with the container still up (s6 timed out).
     healthcheck:
@@ -91,7 +91,7 @@ services:
       - ${STATUS_DIR}:/status:ro
     environment:
       - TZ=${TZ}
-      - SMTP_URL=${SCRUTINY_NOTIFY_URLS}
+      - SMTP_URL=${SMTP_URL:-}
     # It touches /tmp/heartbeat after every round of checks.
     healthcheck:
       <<: *health
@@ -116,7 +116,7 @@ services:
     environment:
       - TZ=${TZ}
       # The same SMTP URL Scrutiny sends with.
-      - SMTP_URL=${SCRUTINY_NOTIFY_URLS}
+      - SMTP_URL=${SMTP_URL:-}
       - JELLYFIN_API_KEY
       - SONARR_API_KEY
       - RADARR_API_KEY

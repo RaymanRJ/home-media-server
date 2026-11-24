@@ -645,6 +645,8 @@ def send(subject, body, attachment):
 
 
 if __name__ == "__main__":
+    if not os.environ.get("SMTP_URL") and not os.environ.get("DRY_RUN"):
+        raise SystemExit("SMTP_URL isn't set in .env, so there's nowhere to send the report.")
     subject, body, inv = build()
     if os.environ.get("DRY_RUN"):
         print(body)

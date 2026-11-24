@@ -5,8 +5,9 @@
 }
 
 # Seerr, the request page, on its own name: users sign in with their Jellyfin accounts. Without
-# SEERR_DOMAIN it's seerr.localhost, which gets Caddy's own certificate and nothing from outside.
-{$SEERR_DOMAIN:seerr.localhost} {
+# SEERR_DOMAIN in .env, the Compose file makes it seerr.localhost: Caddy's own certificate, and
+# nothing outside the server can reach it.
+{$SEERR_DOMAIN} {
 	reverse_proxy localhost:5055
 }
 

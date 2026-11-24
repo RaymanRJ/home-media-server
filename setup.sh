@@ -36,16 +36,31 @@ put() {
 
 # --- .env ---------------------------------------------------------------------------------------
 if [ ! -f "$repo/.env" ]; then
-    run cp "$repo/.env.example" "$repo/.env"
-    run chmod 600 "$repo/.env"
-    say "Created .env from .env.example. Fill it in, then run $0 again."
+    # This machine's values, so the first section of .env is already right.
+    tz=$(timedatectl show -p Timezone --value 2> /dev/null || true)
+    sed -e "s#^CONFIG_ROOT=.*#CONFIG_ROOT=$HOME#" -e "s#^PUID=.*#PUID=$(id -u)#" -e "s#^PGID=.*#PGID=$(id -g)#" \
+        -e "s#^TZ=.*#TZ=${tz:-Etc/UTC}#" -e "s#^STATUS_DIR=.*#STATUS_DIR=$HOME/media-server/status#" \
+        -e "s#^INVENTORY_DIR=.*#INVENTORY_DIR=$HOME/media-server/inventory#" \
+        -e "s#^SAMBA_USER=.*#SAMBA_USER=$(id -un)#" "$repo/.env.example" > "$repo/.env"
+    chmod 600 "$repo/.env"
+    say "Created .env, with this machine's user, time zone and folders filled in."
+    say "Open it (nano .env), set MEDIA_POOL to your media folder and choose what to run, then run $0 again."
     exit 0
 fi
 # Values are read, not sourced: .env holds secrets with characters a shell would interpret.
 env_get() { sed -n "s/^$1=//p" "$repo/.env" | tail -n 1; }
 config_root=$(env_get CONFIG_ROOT)
 media_pool=$(env_get MEDIA_POOL)
+profiles=",$(env_get COMPOSE_PROFILES | tr -d ' '),"
+has() { case "$profiles" in *",$1,"*) return 0 ;; *) return 1 ;; esac; }
 [ -n "$config_root" ] || { echo "CONFIG_ROOT is empty in .env" >&2; exit 1; }
+[ -d "$media_pool" ] || { echo "MEDIA_POOL ($media_pool) isn't a folder: set it in .env" >&2; exit 1; }
+if has https && [ -z "$(env_get JELLYFIN_DOMAIN)" ]; then
+    echo "https is in COMPOSE_PROFILES but JELLYFIN_DOMAIN is empty in .env" >&2; exit 1
+fi
+if has duckdns && { [ -z "$(env_get DUCKDNS_SUBDOMAIN)" ] || [ -z "$(env_get DUCKDNS_TOKEN)" ]; }; then
+    echo "duckdns is in COMPOSE_PROFILES but DUCKDNS_SUBDOMAIN or DUCKDNS_TOKEN is empty in .env" >&2; exit 1
+fi
 
 # --- Docker: the snap or a normal install -------------------------------------------------------
 if [ -x /snap/bin/docker-compose ]; then
@@ -64,8 +79,13 @@ say "Docker: $docker_unit, Compose: $compose"
 folders=""
 for s in $stacks; do
     case "$s" in
-        media) folders="$folders .jellyfin-config/config .jellyfin-config/cache .caddy/data .caddy/config
-            .dns-updater .qbittorrent .prowlarr .sonarr .radarr .bazarr .seerr .recyclarr .cleanuparr" ;;
+        media)
+            folders="$folders .jellyfin-config/config .jellyfin-config/cache"
+            has https && folders="$folders .caddy/data .caddy/config"
+            has duckdns && folders="$folders .duckdns"
+            has route53 && folders="$folders .dns-updater"
+            has downloads && folders="$folders .qbittorrent .prowlarr .sonarr .radarr .bazarr .seerr .recyclarr .cleanuparr"
+            ;;
         monitoring) folders="$folders .beszel/data .scrutiny/config .scrutiny/influxdb .restic-cache" ;;
         samba) folders="$folders .samba/private" ;;
     esac
@@ -141,10 +161,20 @@ esac
 # --- Enable (and maybe start) ---------------------------------------------------------------------
 run sudo systemctl daemon-reload
 for s in $stacks; do run sudo systemctl enable "home-media@$s.service"; done
-case "$stacks" in *monitoring*) run sudo systemctl enable media-backup.timer media-weekly-report.timer ;; esac
+# The timers only once what they need is in .env.
+timers=""
+case "$stacks" in *monitoring*)
+    if [ -n "$(env_get RESTIC_PASSWORD)" ]; then timers="$timers media-backup.timer"
+    else say "No RESTIC_PASSWORD in .env: the nightly backup stays off"; fi
+    if [ -n "$(env_get SMTP_URL)" ]; then timers="$timers media-weekly-report.timer"
+    else say "No SMTP_URL in .env: no email alerts, and the weekly report stays off"; fi ;;
+esac
+# shellcheck disable=SC2086 # $timers is a list of unit names
+[ -z "$timers" ] || run sudo systemctl enable $timers
 if $start; then
     for s in $stacks; do run sudo systemctl restart "home-media@$s.service"; done
-    case "$stacks" in *monitoring*) run sudo systemctl restart media-backup.timer media-weekly-report.timer ;; esac
+    # shellcheck disable=SC2086
+    [ -z "$timers" ] || run sudo systemctl restart $timers
     say "Started. Check with: sudo docker ps (every service should reach (healthy))"
 else
     say "Enabled for the next boot. Start now with: sudo systemctl start$(for s in $stacks; do printf ' home-media@%s' "$s"; done)"

@@ -1,27 +1,34 @@
 # The router
 
 What to set on the home router for Jellyfin, and why. None of it lives in config anywhere, so this
-is the record of it. `jellyfin.example.com` stands for your real name.
+is the record of it. `jellyfin.example.com` stands for your web address (e.g.
+`yourname.duckdns.org`).
+
+**Only needed for the `https` setup** (DuckDNS or your own domain). Watching at home, or away from
+home through Tailscale, needs none of this beyond the fixed LAN IP, which is still a good idea.
 
 Menu paths are from a TP-Link router's web admin page (usually `http://192.168.0.1`), under the
 **Advanced** tab. Other routers have the same settings under other names.
 
 ## How a request gets in
 
-```
-browser ──DNS──▶ Route 53: jellyfin.example.com  A  <home IP>   (kept current by the server's dns-updater)
-browser ──TCP──▶ <home IP>:443 ──router forward──▶ <server LAN IP>:443 (Caddy) ──▶ localhost:8096 (Jellyfin)
+```mermaid
+flowchart LR
+  browser((Browser)) -- "1. looks up the name" --> dns["DuckDNS or Route 53: name → home IP"]
+  browser -- "2. connects to home IP :443" --> router[Router]
+  router -- "forward" --> caddy["Caddy on the server :443"]
+  caddy --> jellyfin["Jellyfin :8096"]
 ```
 
 The router's only job is getting the traffic to the server. Keeping the name on the home IP is the
-server's job (the dns-updater), so nothing depends on the router's make or its
+server's job (the duckdns or route53 updater), so nothing depends on the router's make or its own
 dynamic DNS service. A new router only needs the settings below.
 
 ## Settings
 
 | Setting | Where | Value | Why |
 | --- | --- | --- | --- |
-| Dynamic DNS | Network > Dynamic DNS | Off | **Not used.** A CNAME to a TP-Link DDNS name breaks Let's Encrypt: TP-Link's nameservers fail the checks strict resolvers make, so it gets SERVFAIL. The dns-updater keeps A records current instead. |
+| Dynamic DNS | Network > Dynamic DNS | Off | **Not used.** A CNAME to a TP-Link DDNS name breaks Let's Encrypt: TP-Link's nameservers fail the checks strict resolvers make, so it gets SERVFAIL. The server's duckdns or route53 updater keeps the name current instead. |
 | Server's LAN IP | Network > DHCP Server > Address Reservation | The server's MAC, a fixed `<server LAN IP>` | The forwards below target this IP. If DHCP hands the server a new one, they silently break. |
 | Forward 80 | NAT Forwarding > Virtual Servers | TCP 80 → `<server LAN IP>`:80 | Caddy: Let's Encrypt's certificate check, and the `http://` → `https://` redirect. |
 | Forward 443 | NAT Forwarding > Virtual Servers | TCP 443 → `<server LAN IP>`:443 | Caddy: HTTPS, which it proxies to Jellyfin. |
@@ -49,7 +56,7 @@ with the router when that happens.
 ## Quirks
 
 - **The router caches "not found" answers.** Devices use the router for DNS, and it remembers a
-  lookup that failed. A name looked up before its Route 53 record existed keeps failing at home for
+  lookup that failed. A name looked up before its DNS record existed keeps failing at home for
   up to 15 minutes after it's created, while it already works on mobile data. Wait it out, or check
   with `dig jellyfin.example.com @8.8.8.8`. A Mac caches it too:
   `sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder`.
@@ -59,7 +66,7 @@ with the router when that happens.
   and 443 rules listed and enabled, but its own web server answering both ports on the public IP (a
   `tplinkwifi.net` self-signed certificate, then the router login), even with Remote Management
   off. Switching both rules off, saving, and on again fixes it. A browser that saw the router's
-  certificate meanwhile keeps saying "Not secure" until it's fully quit. The outside check
-  emails a `tls` result within about ten minutes when it happens.
+  certificate meanwhile keeps saying "Not secure" until it's fully quit. An outside monitor
+  (UptimeRobot, or the AWS outside check) emails you within minutes when it happens.
 - **Test from outside on mobile data,** not home Wi-Fi. At home, loopback and the router's DNS
   cache can make the result differ from what everyone else sees.
