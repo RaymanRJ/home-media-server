@@ -1,9 +1,10 @@
 [Unit]
 # One unit per stack: home-media@media, home-media@monitoring, home-media@samba.
 Description=Home media server: the %i stack, via Docker Compose
-# For Docker from the snap: snap.docker.dockerd.service here and below, and /snap/bin/docker-compose
-# instead of /usr/bin/docker compose.
-Requires=docker.service
+# Wants, not Requires: a drop-in can add Requires=snap.docker.dockerd.service for Docker from the
+# snap, and /snap/bin/docker-compose instead of /usr/bin/docker compose below; a Requires here
+# couldn't be undone by a drop-in, and snap installs have no docker.service.
+Wants=docker.service
 After=docker.service
 
 [Service]

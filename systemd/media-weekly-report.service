@@ -1,6 +1,6 @@
 [Unit]
 Description=Send the media server's weekly email report
-Requires=docker.service
+Wants=docker.service
 After=docker.service home-media@media.service home-media@monitoring.service
 
 [Service]

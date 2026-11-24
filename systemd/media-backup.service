@@ -1,6 +1,6 @@
 [Unit]
 Description=Back up the media server's configs and irreplaceable media to the NAS share
-Requires=docker.service
+Wants=docker.service
 After=docker.service home-media@media.service home-media@monitoring.service
 
 [Service]
