@@ -3,7 +3,10 @@
 # stacks at boot. Safe to run again after changing .env or moving the repo; it never overwrites
 # .env or a compose.override.yaml, and only starts anything with --start.
 #
-#   ./setup.sh [--dry-run] [--start] [stack ...]     stacks: media monitoring samba (default: all)
+#   ./setup.sh [--dry-run] [--start] [stack ...]     stacks: media monitoring samba
+#
+# Without stack names it sets up media, plus any stack already turned on by an earlier run, so
+# monitoring and samba only start once you name them (after filling in their settings).
 #
 # Run it from anywhere as the user who owns the media; it uses sudo for the systemd and Avahi files.
 set -eu
@@ -20,7 +23,12 @@ for arg in "$@"; do
         *) echo "unknown argument: $arg (see the top of $0)" >&2; exit 2 ;;
     esac
 done
-[ -n "$stacks" ] || stacks="media monitoring samba"
+if [ -z "$stacks" ]; then
+    stacks="media"
+    for s in monitoring samba; do
+        systemctl is-enabled -q "home-media@$s.service" 2> /dev/null && stacks="$stacks $s"
+    done
+fi
 
 say() { printf '%s\n' "$*"; }
 run() { if $dry; then say "would run: $*"; else "$@"; fi; }
@@ -41,7 +49,8 @@ if [ ! -f "$repo/.env" ]; then
     sed -e "s#^CONFIG_ROOT=.*#CONFIG_ROOT=$HOME#" -e "s#^PUID=.*#PUID=$(id -u)#" -e "s#^PGID=.*#PGID=$(id -g)#" \
         -e "s#^TZ=.*#TZ=${tz:-Etc/UTC}#" -e "s#^STATUS_DIR=.*#STATUS_DIR=$HOME/media-server/status#" \
         -e "s#^INVENTORY_DIR=.*#INVENTORY_DIR=$HOME/media-server/inventory#" \
-        -e "s#^SAMBA_USER=.*#SAMBA_USER=$(id -un)#" "$repo/.env.example" > "$repo/.env"
+        -e "s#^SAMBA_USER=.*#SAMBA_USER=$(id -un)#" -e "s#^SAMBA_SHARE_DIR=.*#SAMBA_SHARE_DIR=$HOME/share#" \
+        "$repo/.env.example" > "$repo/.env"
     chmod 600 "$repo/.env"
     say "Created .env, with this machine's user, time zone and folders filled in."
     say "Open it (nano .env), set MEDIA_POOL to your media folder and choose what to run, then run $0 again."
@@ -100,6 +109,26 @@ case "$stacks" in *monitoring*)
     for v in STATUS_DIR INVENTORY_DIR; do
         d=$(env_get $v); [ -z "$d" ] || [ -d "$d" ] || run mkdir -p "$d"
     done ;;
+esac
+
+# Folders in the media and shared folders, owned by PUID:PGID so the apps can write to them. With
+# sudo only when this user can't write where they go (a root-owned pool, say).
+owned_dir() {
+    [ -d "$1" ] && return
+    if [ -w "$(dirname "$1")" ]; then run mkdir -p "$1"
+    else run sudo install -d -o "$(env_get PUID)" -g "$(env_get PGID)" "$1"; fi
+}
+case "$stacks" in *media*)
+    # Where qBittorrent downloads, and the libraries Sonarr and Radarr file into: a folder Docker
+    # creates itself is owned by root, and the apps can't write to it.
+    if has downloads; then
+        for d in downloads Movies TV; do owned_dir "$media_pool/$d"; done
+    fi ;;
+esac
+case "$stacks" in *samba*)
+    share=$(env_get SAMBA_SHARE_DIR)
+    [ -n "$share" ] || { echo "SAMBA_SHARE_DIR is empty in .env" >&2; exit 1; }
+    owned_dir "$share" ;;
 esac
 
 # --- Check each stack's configuration before installing anything ----------------------------------
@@ -176,6 +205,10 @@ if $start; then
     # shellcheck disable=SC2086
     [ -z "$timers" ] || run sudo systemctl restart $timers
     say "Started. Check with: sudo docker ps (every service should reach (healthy))"
+    case "$stacks" in *samba*) say "Samba: set its password once (README, File shares)" ;; esac
 else
     say "Enabled for the next boot. Start now with: sudo systemctl start$(for s in $stacks; do printf ' home-media@%s' "$s"; done)"
 fi
+for s in monitoring samba; do
+    case "$stacks" in *"$s"*) ;; *) say "Not set up: $s. When you want it: $0 --start $s" ;; esac
+done

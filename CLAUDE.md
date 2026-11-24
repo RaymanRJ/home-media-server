@@ -56,6 +56,10 @@ wrong, say so: the articles live in another repo.
   enabled part's data folder, checks `.env` and that every stack renders,
   installs the units and Avahi file, enables them, and the backup and report timers only once their
   settings exist (`--start` starts them, `--dry-run` only prints).
+  Without stack names it does media plus any stack already enabled, so monitoring and samba start
+  only once named (samba needs `smbpasswd` after its first start). It creates `downloads`,
+  `Movies` and `TV` in `MEDIA_POOL` (with `downloads`) and `SAMBA_SHARE_DIR`, owned by
+  `PUID:PGID`, since a folder Docker creates is root's.
   Keep it idempotent and POSIX `sh`; it must never overwrite `.env` or a `compose.override.yaml`.
 - `terraform/` (optional, AWS): Route 53 records, IAM Roles Anywhere for the dns-updater, SES for alert email, and
   the outside check (`monitor.tf`, `maintenance.tf`). Real values only in gitignored `backend.hcl`

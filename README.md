@@ -15,6 +15,7 @@ walks through this repo from a spare computer to a film playing on your TV. More
 - [Choose your setup](#choose-your-setup)
 - [Requirements](#requirements)
 - [Getting started](#getting-started)
+- [File shares](#file-shares)
 - [Watching away from home](#watching-away-from-home)
 - [Configuration](#configuration)
 - [Ports](#ports)
@@ -111,14 +112,38 @@ provides. Without it, visitors just see that the site can't be reached.
    ./setup.sh --start
    ```
 
-   It creates each app's folders, checks the settings, and installs everything to start
-   automatically when the server boots. (`./setup.sh --dry-run` shows what it would do first.)
+   This starts the media stack: Jellyfin, and the parts you chose in `COMPOSE_PROFILES`. It
+   creates each app's folders (and `downloads`, `Movies` and `TV` in your media folder, for the
+   download apps), checks the settings, and installs everything to start automatically when the
+   server boots. (`./setup.sh --dry-run` shows what it would do first.)
 
 4. **Open Jellyfin** at `http://<server-address>:8096` from any device at home and follow its
    setup. Then set up the other apps you turned on, at the ports below.
 
-5. **Optional:** [watch away from home](#watching-away-from-home), email alerts and backups (both
+5. **Add the other stacks when you want them**, each by name. Once added, a plain
+   `./setup.sh --start` includes them from then on:
+
+   ```sh
+   ./setup.sh --start monitoring     # server stats, drive health, the watchdog; backups and email from .env
+   ./setup.sh --start samba          # file shares: then set its password (File shares, below)
+   ```
+
+6. **Optional:** [watch away from home](#watching-away-from-home), email alerts and backups (all
    in `.env`), then run `./setup.sh --start` again.
+
+## File shares
+
+The samba stack shares one folder, `SAMBA_SHARE_DIR` in `.env` (`~/share` unless you change it),
+with Macs, Windows and phones at home. After its first start, give its user (`SAMBA_USER`, your
+own user name unless you change it) a password, once:
+
+```sh
+sudo docker exec -it samba smbpasswd -a "$(id -un)"     # or the SAMBA_USER from .env
+```
+
+Then connect: on a Mac, Finder's sidebar under Network (or `smb://<server-address>`); on Windows,
+`\\<server-address>` in File Explorer; on a phone, a file app's "connect to server". To share
+more folders, see `stacks/samba/compose.override.example.yaml`.
 
 ## Watching away from home
 
@@ -207,8 +232,18 @@ without it. In AWS, `terraform/` sets up:
   you when it goes down or comes back, and, the part with no easy alternative, shows a
   **"we're offline" page** while your house is unreachable.
 
-It costs about nothing (everything stays in AWS's free tiers) but needs an AWS account, a domain
-already in Route 53, and [Terraform](https://developer.hashicorp.com/terraform/install) 1.10+:
+It costs about nothing (everything stays in AWS's free tiers) but needs, before you start:
+
+- an AWS account, and [Terraform](https://developer.hashicorp.com/terraform/install) 1.10+;
+- your domain as a hosted zone in Route 53 (Terraform only adds records to it);
+- **your domain verified in SES**, in the **us-east-1** region (SES console > Identities > Create
+  identity > Domain, then add the DKIM records it shows to Route 53; it can add them for you).
+  Terraform doesn't do this, and email fails until it's done. Alerts go only to an address on
+  that domain (`alert_email`, and `SMTP_URL`'s `to`): that works in SES's *sandbox*, where new
+  accounts start, and the sending user Terraform makes is limited to it on purpose. Want alerts at
+  another address? Use any email account for `SMTP_URL` instead ([Configuration](#configuration)).
+
+Then:
 
 ```sh
 cd terraform
