@@ -5,5 +5,5 @@ seerr_domain_name = "requests.example.com"
 hosted_zone_name  = "example.com"
 home_ip           = "203.0.113.10"       # from `curl ifconfig.me` at home; only used on creation
 alert_email       = "you@example.com"    # on hosted_zone_name: SES is in the sandbox
-github_repository = "example-user/home-media-server" # its main branch deploys the outside check
+github_repository = ""                  # optional: "you/home-media-server" for automatic deploys
 aws_region        = "us-east-2"

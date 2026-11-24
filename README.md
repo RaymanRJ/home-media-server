@@ -217,6 +217,27 @@ terraform output -raw server_key_pem      # save as ~/.dns-updater/key.pem (chmo
 Then `COMPOSE_PROFILES=downloads,https,route53`, `SMTP_URL` with SES's details
 (`terraform output ses_smtp`), and `./setup.sh --start`.
 
+**The outside check's code** (`outside-check/`) goes into AWS with that first `terraform apply`,
+and runs from then on. Terraform doesn't upload it again on its own; after changing it, run
+`terraform apply -replace=aws_lambda_function.monitor`.
+
+**Automatic deploys (optional):** to have GitHub upload the code on every push instead, as this
+repo's [workflow](.github/workflows/outside-check.yaml) does:
+
+1. Fork this repo (or push your copy to GitHub), and enable Actions on it.
+2. Set `github_repository = "you/home-media-server"` in `site.auto.tfvars` and `terraform apply`.
+   That creates a role only your repo's `main` branch can use, which can only update and run this
+   one function. It needs GitHub's sign-in provider in your AWS account; if `apply` says there is
+   none, create it once with the command in `terraform/monitor.tf`.
+3. Add the secrets and switch the deploy on:
+
+   ```sh
+   terraform output -json github_actions_secrets \
+     | python3 -c 'import json,sys; [print(k, v) for k, v in json.load(sys.stdin).items()]' \
+     | while read -r name value; do gh secret set "$name" --body "$value"; done
+   gh variable set OUTSIDE_CHECK_DEPLOY --body true
+   ```
+
 ## Repository layout
 
 ```

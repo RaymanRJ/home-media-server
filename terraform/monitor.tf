@@ -160,24 +160,31 @@ resource "aws_lambda_function" "monitor" {
   depends_on = [aws_cloudwatch_log_group.monitor, aws_iam_role_policy.monitor]
 
   # Terraform uploads the code only when it creates the function. After that, GitHub Actions
-  # deploys it on every push to main (.github/workflows/outside-check.yaml).
+  # deploys it on every push to main (.github/workflows/outside-check.yaml), if github_repository
+  # is set; without it, `terraform apply -replace=aws_lambda_function.monitor` uploads a change.
   lifecycle {
     ignore_changes = [filename, source_code_hash]
   }
 }
 
-# --- GitHub Actions deploy role ---
+# --- GitHub Actions deploy role (only with github_repository set) ---
+
+locals {
+  deploy_from_github = var.github_repository != ""
+}
 
 # GitHub's OIDC provider is one per account, often already made by another project, so it's only
 # looked up here. If the account has none yet, create it once:
 #   aws iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com \
 #     --client-id-list sts.amazonaws.com
 data "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
+  count = local.deploy_from_github ? 1 : 0
+  url   = "https://token.actions.githubusercontent.com"
 }
 
 # Only workflows on main of this one repository can assume it.
 resource "aws_iam_role" "deploy" {
+  count       = local.deploy_from_github ? 1 : 0
   name        = "GitHubActionsDeploy-${local.monitor_name}"
   description = "Deploys the ${local.monitor_name} Lambda's code from GitHub Actions"
 
@@ -185,7 +192,7 @@ resource "aws_iam_role" "deploy" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
+      Principal = { Federated = data.aws_iam_openid_connect_provider.github[0].arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
@@ -200,8 +207,9 @@ resource "aws_iam_role" "deploy" {
 # Just enough to replace the code, wait for it, and run it once as a check. Not its configuration,
 # role or schedule: those stay with Terraform.
 resource "aws_iam_role_policy" "deploy" {
-  name = "deploy-code"
-  role = aws_iam_role.deploy.id
+  count = local.deploy_from_github ? 1 : 0
+  name  = "deploy-code"
+  role  = aws_iam_role.deploy[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -230,4 +238,15 @@ resource "aws_lambda_permission" "monitor" {
   function_name = aws_lambda_function.monitor.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.monitor.arn
+}
+
+# The role and its policy before github_repository became optional, so existing state keeps them.
+moved {
+  from = aws_iam_role.deploy
+  to   = aws_iam_role.deploy[0]
+}
+
+moved {
+  from = aws_iam_role_policy.deploy
+  to   = aws_iam_role_policy.deploy[0]
 }

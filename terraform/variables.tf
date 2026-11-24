@@ -34,8 +34,9 @@ variable "alert_email" {
 }
 
 variable "github_repository" {
-  description = "The GitHub repository whose main branch may deploy the outside check, as \"owner/name\"."
+  description = "Optional: the GitHub repository whose main branch may deploy the outside check's code, as \"owner/name\". Empty: no deploy role, and no GitHub OIDC provider needed in the account."
   type        = string
+  default     = ""
 }
 
 variable "aws_region" {

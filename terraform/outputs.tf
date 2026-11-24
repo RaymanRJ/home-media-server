@@ -59,12 +59,12 @@ output "outside_check" {
 
 # The repository secrets the outside check's workflow needs.
 output "github_actions_secrets" {
-  description = "Secrets for .github/workflows/outside-check.yaml."
-  value = {
+  description = "Secrets for .github/workflows/outside-check.yaml (null without github_repository)."
+  value = local.deploy_from_github ? {
     AWS_REGION             = var.aws_region
-    AWS_DEPLOY_ROLE_ARN    = aws_iam_role.deploy.arn
+    AWS_DEPLOY_ROLE_ARN    = aws_iam_role.deploy[0].arn
     OUTSIDE_CHECK_FUNCTION = aws_lambda_function.monitor.function_name
-  }
+  } : null
 }
 
 # For testing the maintenance page without an outage.

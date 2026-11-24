@@ -54,10 +54,13 @@ Notes about the user's own server (hardware, drives, what's set up, decisions) b
 - `terraform/` (optional, AWS): Route 53 records, IAM Roles Anywhere for the dns-updater, SES for alert email, and
   the outside check (`monitor.tf`, `maintenance.tf`). Real values only in gitignored `backend.hcl`
   and `site.auto.tfvars`. `.terraform.lock.hcl` is committed.
-- `outside-check/` (optional, AWS): the Lambda (`check.py`) that checks the site from AWS every five minutes, emails
-  on change, and serves `maintenance.html` while the house is offline. Deployed by
-  `.github/workflows/outside-check.yaml` only when the repository variable `OUTSIDE_CHECK_DEPLOY` is
-  `true`.
+- `outside-check/` (optional, AWS): the Lambda (`check.py`) that checks the site from AWS every
+  five minutes, emails on change, and serves `maintenance.html` while the house is offline.
+  Terraform uploads its code when it creates the function and ignores it after
+  (`terraform apply -replace=aws_lambda_function.monitor` uploads a change). With
+  `github_repository` set, Terraform also makes a deploy role (and needs the account's GitHub OIDC
+  provider), and `.github/workflows/outside-check.yaml` deploys pushes to main when the repository
+  variable `OUTSIDE_CHECK_DEPLOY` is `true`. Empty `github_repository` (the default): neither.
 - `docs/router.md`: the router's settings (port forwards, only for `https`), which live in no
   config file.
 
