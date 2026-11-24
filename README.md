@@ -67,6 +67,7 @@ Every image is pinned to a version, and every service has a health check.
 ## Repository layout
 
 ```
+setup.sh                      data folders, systemd units and drop-ins; safe to re-run
 .env.example                  every setting and secret, with placeholders
 stacks/
   media/                      compose.yaml, Caddyfile, dns-updater/, recyclarr/
@@ -91,23 +92,21 @@ CLAUDE.md                     guidance for Claude Code; your own server's notes 
 
 ## Getting started
 
-1. **Clone** to `/opt/home-media-server` (or elsewhere, and change `WorkingDirectory` in the units).
+1. **Clone** anywhere the user who owns the media can write, and run the setup script once. It
+   creates `.env` from the example and stops:
 
    ```sh
-   sudo git clone https://github.com/RaymanRJ/home-media-server.git /opt/home-media-server
-   cd /opt/home-media-server
+   git clone https://github.com/RaymanRJ/home-media-server.git ~/home-media-server
+   cd ~/home-media-server
+   ./setup.sh
    ```
 
 2. **Configure.** Fill in `.env`, and copy an override for any stack that needs this machine's
    hardware (the GPU for Jellyfin, drives for monitoring, extra Samba shares):
 
    ```sh
-   cp .env.example .env
    cp stacks/media/compose.override.example.yaml stacks/media/compose.override.yaml   # and so on
    ```
-
-   Create each app's data folder under `CONFIG_ROOT` before its first start (e.g.
-   `mkdir -p ~/.jellyfin-config ~/.caddy`), so Docker doesn't create them owned by root.
 
 3. **AWS** (optional). From `terraform/`, copy `backend.hcl.example` and
    `site.auto.tfvars.example`, then:
@@ -123,18 +122,17 @@ CLAUDE.md                     guidance for Claude Code; your own server's notes 
 4. **Router.** Forward TCP 80 and 443 to the server (and 6881 for torrents); see
    [`docs/router.md`](docs/router.md).
 
-5. **Start the stacks** at boot with systemd:
+5. **Start it.** Run the setup script again: it creates each app's data folder, checks every
+   stack's configuration, installs the systemd units (one per stack, plus the backup and report
+   timers) for wherever the repo is and whichever Docker you have, and starts them:
 
    ```sh
-   sudo cp systemd/home-media@.service systemd/media-*.service systemd/media-*.timer /etc/systemd/system/
-   sudo cp -r systemd/home-media@media.service.d /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now home-media@media home-media@monitoring home-media@samba
-   sudo systemctl enable --now media-backup.timer media-weekly-report.timer
+   ./setup.sh --start              # or name the stacks you want: ./setup.sh --start media samba
    ```
 
-   Or by hand: `cd stacks/media && sudo docker compose up -d`. Caddy gets the Let's Encrypt
-   certificates on first start (`sudo docker logs -f caddy`).
+   `./setup.sh --dry-run` shows what it would do first. It's safe to run again after changing
+   `.env` or moving the repo. Caddy gets the Let's Encrypt certificates on first start
+   (`sudo docker logs -f caddy`).
 
 6. **Set up the apps** in their web UIs (ports below), then check from a phone on mobile data.
 
@@ -146,8 +144,8 @@ CLAUDE.md                     guidance for Claude Code; your own server's notes 
   on its own. See the `.example` next to each.
 - **`COMPOSE_PROFILES=downloads`** in `.env` turns on the download apps; leave it empty for just
   Jellyfin and Caddy.
-- **Docker from the snap:** use `snap.docker.dockerd.service` and `/snap/bin/docker-compose` in the
-  units, and keep mounted paths under `/home` or `/mnt`.
+- **Docker from the snap** works too: `setup.sh` points the units at it. Keep mounted paths under
+  `/home` or `/mnt`, which snap confinement allows.
 
 ## Ports
 

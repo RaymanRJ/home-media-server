@@ -31,8 +31,15 @@ Notes about the user's own server (hardware, drives, what's set up, decisions) b
   Each stack reads it through its committed `.env` symlink (`stacks/<name>/.env -> ../../.env`).
 - `stacks/<name>/compose.override.yaml` (gitignored, from the `.example` beside it): this machine's
   hardware (GPU device, disks by serial, drive mounts, extra shares). Compose merges it in on its own.
-- `systemd/`: `home-media@.service`, a template run once per stack (`home-media@media` etc.), a
-  drop-in making the media stack wait for the pool, and the backup and weekly-report units and timers.
+- `systemd/`: `home-media@.service`, a template run once per stack (`home-media@media` etc.), and
+  the backup and weekly-report units and timers. They're written for a normal Docker install at
+  `/opt/home-media-server`; `setup.sh` installs them with drop-ins (`*.service.d/local.conf`) for
+  the repo's real path and the machine's Docker (the snap or not), and `pool.conf` from
+  `MEDIA_POOL`. Units use `Wants=docker.service`, never `Requires=`: a drop-in can't undo a
+  `Requires`, and snap Docker has no `docker.service`.
+- `setup.sh`: creates `.env` (then stops), each app's data folder, checks every stack renders,
+  installs the units and Avahi file, enables them (`--start` starts them, `--dry-run` only prints).
+  Keep it idempotent and POSIX `sh`; it must never overwrite `.env` or a `compose.override.yaml`.
 - `terraform/`: Route 53 records, IAM Roles Anywhere for the dns-updater, SES for alert email, and
   the outside check (`monitor.tf`, `maintenance.tf`). Real values only in gitignored `backend.hcl`
   and `site.auto.tfvars`. `.terraform.lock.hcl` is committed.
@@ -75,13 +82,13 @@ cp -n .env.example .env                                   # placeholders are eno
 for s in media monitoring samba; do (cd stacks/$s && docker compose config -q && echo "$s ok"); done
 (cd stacks/media && docker compose --profile downloads config --services)
 python3 -m py_compile outside-check/check.py stacks/monitoring/*/*.py
-shellcheck stacks/*/*.sh stacks/*/*/*.sh
+shellcheck setup.sh stacks/*/*.sh stacks/*/*/*.sh
 (cd terraform && terraform fmt -check && terraform init -backend=false && terraform validate)
 ```
 
 On the server, after `git pull`: `cd stacks/<name> && sudo docker compose up -d --build`, then
-`sudo docker ps` until the changed services show `(healthy)`. A unit change needs copying to
-`/etc/systemd/system/` and `systemctl daemon-reload`.
+`sudo docker ps` until the changed services show `(healthy)`. A unit change needs `./setup.sh`
+again (it reinstalls the units and reloads systemd), then a restart of the affected unit.
 
 ## Boundaries
 
