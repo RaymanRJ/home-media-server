@@ -171,6 +171,8 @@ resource "aws_lambda_function" "monitor" {
 
 locals {
   deploy_from_github = var.github_repository != ""
+  github_owner       = split("/", var.github_repository)[0]
+  github_name        = try(split("/", var.github_repository)[1], "")
 }
 
 # GitHub's OIDC provider is one per account, often already made by another project, so it's only
@@ -194,10 +196,18 @@ resource "aws_iam_role" "deploy" {
       Effect    = "Allow"
       Principal = { Federated = data.aws_iam_openid_connect_provider.github[0].arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
+      # GitHub names the repo in the token's subject in one of two ways: "repo:owner/name" (older
+      # repositories) or, for repositories made since GitHub's switch to immutable subjects,
+      # "repo:owner@<account id>/name@<repo id>". Both are accepted, for main only.
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:ref:refs/heads/main"
+        }
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:${var.github_repository}:ref:refs/heads/main",
+            "repo:${local.github_owner}@*/${local.github_name}@*:ref:refs/heads/main",
+          ]
         }
       }
     }]

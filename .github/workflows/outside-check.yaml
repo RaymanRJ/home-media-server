@@ -82,5 +82,7 @@ jobs:
       - name: Run once
         run: |
           aws lambda invoke --function-name "$FUNCTION" --query FunctionError --output text out.json > err.txt
-          cat out.json; echo
+          # Only the kind (ok, offline, ...): the detail names the home IP, and a public repo's logs
+          # are public.
+          python3 -c 'import json; print("kind:", json.load(open("out.json")).get("kind"))' || true
           if [ "$(cat err.txt)" != "None" ]; then echo "::error::the function failed: $(cat err.txt)"; exit 1; fi
