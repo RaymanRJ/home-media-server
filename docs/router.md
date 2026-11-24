@@ -4,7 +4,8 @@ What to set on the home router for Jellyfin, and why. None of it lives in config
 is the record of it. `jellyfin.example.com` stands for your web address (e.g.
 `yourname.duckdns.org`).
 
-**Only needed for the `https` setup** (DuckDNS or your own domain). Watching at home, or away from
+**Only needed for the `https` setup** (DuckDNS or your own domain: ports 80 and 443) **and for
+`downloads`** (qBittorrent's port 6881, so downloads find peers). Watching at home, or away from
 home through Tailscale, needs none of this beyond the fixed LAN IP, which is still a good idea.
 
 Menu paths are from a TP-Link router's web admin page (usually `http://192.168.0.1`), under the

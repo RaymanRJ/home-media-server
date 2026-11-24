@@ -14,7 +14,7 @@ x-health: &health
 
 services:
   # Server monitoring: CPU, memory, network, disks and containers, with
-  # history and alerts. Home only: the router forwards only 80 and 443.
+  # history and alerts. Home only: never forward its port.
   beszel:
     image: henrygd/beszel:0.21.0
     container_name: beszel
@@ -92,6 +92,8 @@ services:
     environment:
       - TZ=${TZ}
       - SMTP_URL=${SMTP_URL:-}
+      # Watch the backup only when one is configured (a RESTIC_PASSWORD in .env).
+      - BACKUP_ENABLED=${RESTIC_PASSWORD:+yes}
     # It touches /tmp/heartbeat after every round of checks.
     healthcheck:
       <<: *health
@@ -169,12 +171,11 @@ services:
 
 volumes:
   # An SMB share on a NAS (BACKUP_SHARE in .env), mounted by Docker itself (no fstab line on the
-  # host). Here as a guest share with no login: the restic repository in it is encrypted, so the
-  # files are unreadable without RESTIC_PASSWORD. For a share that needs a login, add
-  # `username=...,password=...` to `o`.
+  # host). As a guest by default; BACKUP_SHARE_OPTS in .env gives a login instead. Either way the
+  # restic repository in it is encrypted, so the files are unreadable without RESTIC_PASSWORD.
   backup-target:
     driver: local
     driver_opts:
       type: cifs
       device: ${BACKUP_SHARE}
-      o: "guest,vers=3.0,uid=0,gid=0,file_mode=0600,dir_mode=0700"
+      o: "${BACKUP_SHARE_OPTS:-guest},vers=3.0,uid=0,gid=0,file_mode=0600,dir_mode=0700"

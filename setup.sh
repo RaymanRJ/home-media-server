@@ -35,7 +35,7 @@ run() { if $dry; then say "would run: $*"; else "$@"; fi; }
 # Writes stdin to a root-owned file, unless it already has exactly that content.
 put() {
     content=$(cat)
-    if [ -f "$1" ] && [ "$(sudo cat "$1")" = "$content" ]; then return; fi
+    if [ -f "$1" ] && [ "$(cat "$1" 2> /dev/null)" = "$content" ]; then return; fi
     if $dry; then say "would write $1:"; printf '%s\n' "$content" | sed 's/^/    /'; return; fi
     sudo mkdir -p "$(dirname "$1")"
     printf '%s\n' "$content" | sudo tee "$1" > /dev/null
@@ -44,6 +44,7 @@ put() {
 
 # --- .env ---------------------------------------------------------------------------------------
 if [ ! -f "$repo/.env" ]; then
+    if $dry; then say "would create .env from .env.example, then stop for you to fill it in"; exit 0; fi
     # This machine's values, so the first section of .env is already right.
     tz=$(timedatectl show -p Timezone --value 2> /dev/null || true)
     sed -e "s#^CONFIG_ROOT=.*#CONFIG_ROOT=$HOME#" -e "s#^PUID=.*#PUID=$(id -u)#" -e "s#^PGID=.*#PGID=$(id -g)#" \
@@ -153,7 +154,7 @@ WorkingDirectory=$repo/stacks/%i
 ExecStartPre=
 ExecStartPre=/bin/sh -c 'until $docker info >/dev/null 2>&1; do sleep 2; done'
 ExecStart=
-ExecStart=$compose up -d
+ExecStart=$compose up -d --build
 ExecStop=
 ExecStop=$compose down
 EOF
@@ -195,8 +196,9 @@ timers=""
 case "$stacks" in *monitoring*)
     if [ -n "$(env_get RESTIC_PASSWORD)" ]; then timers="$timers media-backup.timer"
     else say "No RESTIC_PASSWORD in .env: the nightly backup stays off"; fi
-    if [ -n "$(env_get SMTP_URL)" ]; then timers="$timers media-weekly-report.timer"
-    else say "No SMTP_URL in .env: no email alerts, and the weekly report stays off"; fi ;;
+    if [ -n "$(env_get SMTP_URL)" ] && [ -n "$(env_get JELLYFIN_API_KEY)" ]; then
+        timers="$timers media-weekly-report.timer"
+    else say "No SMTP_URL or JELLYFIN_API_KEY in .env: the weekly report stays off"; fi ;;
 esac
 # shellcheck disable=SC2086 # $timers is a list of unit names
 [ -z "$timers" ] || run sudo systemctl enable $timers

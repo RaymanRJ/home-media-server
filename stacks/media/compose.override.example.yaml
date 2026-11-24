@@ -2,8 +2,8 @@
 # or leave it out. Compose merges it into compose.yaml on its own.
 
 services:
-  # VA-API transcoding on the CPU's integrated graphics. The group is the host's `render` group
-  # (`getent group render`), which owns the device. In Jellyfin: Dashboard > Playback > Transcoding,
+  # VA-API transcoding on the CPU's integrated graphics. Change 109 to your render group's number:
+  # the third field of `getent group render`. In Jellyfin: Dashboard > Playback > Transcoding,
   # VAAPI, /dev/dri/renderD128.
   jellyfin:
     devices:

@@ -1,7 +1,11 @@
-# More shares for the Samba stack: copy to compose.override.yaml (gitignored) and edit. Mount each
-# folder under /shares here, and add a block for it to smb.conf.
+# More shares for the Samba stack: copy to compose.override.yaml (gitignored) and edit.
+#
+# Copy stacks/samba/smb.conf to ~/.samba/smb.conf and add a block for each new share there (the
+# repo's own smb.conf stays untouched, so `git pull` keeps working); this file mounts your copy over
+# it, and each new folder under /shares.
 
 services:
   samba:
     volumes:
+      - ${CONFIG_ROOT}/.samba/smb.conf:/etc/samba/smb.conf:ro
       - /mnt/<drive-2-uuid>/private:/shares/private

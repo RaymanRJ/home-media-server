@@ -66,7 +66,7 @@ flowchart LR
   backup --> nas[("NAS share")]
 ```
 
-Every image is pinned to a version, and every service has a health check.
+Every image is pinned to a version, and every long-running service has a health check.
 
 ## Choose your setup
 
@@ -90,7 +90,8 @@ provides. Without it, visitors just see that the site can't be reached.
   [Docker](https://docs.docker.com/engine/install/ubuntu/) installed
 - Your media in one folder, or several drives pooled with [mergerfs](https://github.com/trapexit/mergerfs)
 - Optional: a router you can forward ports on (for DuckDNS), a NAS or other shared folder (for
-  backups), an Intel CPU with built-in graphics (for faster transcoding)
+  backups), an Intel CPU with built-in graphics (for faster transcoding), and Avahi
+  (`sudo apt install avahi-daemon`) so Macs and phones find the file shares by name
 
 ## Getting started
 
@@ -118,7 +119,9 @@ provides. Without it, visitors just see that the site can't be reached.
    server boots. (`./setup.sh --dry-run` shows what it would do first.)
 
 4. **Open Jellyfin** at `http://<server-address>:8096` from any device at home and follow its
-   setup. Then set up the other apps you turned on, at the ports below.
+   setup. Then set up the other apps you turned on, at the ports below, with the folder paths and
+   addresses in [`stacks/media/README.md`](stacks/media/README.md#paths-and-addresses-to-use-in-the-apps)
+   (qBittorrent's save path in particular).
 
 5. **Add the other stacks when you want them**, each by name. Once added, a plain
    `./setup.sh --start` includes them from then on:
@@ -191,8 +194,8 @@ Forwarding ports makes Jellyfin and Seerr reachable from the internet: keep thei
 | 5055                                | Seerr                                                      | Home (and via Caddy)              |
 | 6881                                | qBittorrent's torrent port                                 | The internet, if forwarded        |
 | 8081, 9696, 8989, 7878, 6767, 11011 | qBittorrent, Prowlarr, Sonarr, Radarr, Bazarr, Cleanuparr  | Home                              |
-| 8090, 8080                          | Beszel, Scrutiny                                           | Home                              |
-| 445, 139                            | Samba                                                      | Home                              |
+| 8090, 8080, 45876                   | Beszel, Scrutiny, the Beszel agent                         | Home                              |
+| 445, 139 (TCP); 137, 138 (UDP)      | Samba                                                      | Home                              |
 
 Only what the router forwards is public. Scrutiny has no login, so never forward it.
 
@@ -209,7 +212,8 @@ first for Jellyfin and the download apps, which upgrade their databases.
 
 With `RESTIC_PASSWORD` and `BACKUP_SHARE` set in `.env`, a nightly backup sends every app's
 settings, `.env` and anything added in the monitoring stack's override to an encrypted copy on a
-shared folder (a NAS, or another computer). Keep `RESTIC_PASSWORD` somewhere safe as well: without
+shared folder (a NAS, or another computer). The folder can allow guests (the default) or need a
+login: `BACKUP_SHARE_OPTS=username=...,password=...` in `.env`. Keep `RESTIC_PASSWORD` somewhere safe as well: without
 it the backup can't be restored. Your films and shows themselves aren't backed up; add a folder
 that matters (music, photos) in the override. To restore:
 
@@ -218,6 +222,8 @@ cd stacks/monitoring
 sudo docker compose run --rm -v "$HOME/restore:/restore" --entrypoint restic backup snapshots
 sudo docker compose run --rm -v "$HOME/restore:/restore" --entrypoint restic backup restore latest --target /restore
 ```
+
+With Docker from the snap, write `sudo docker-compose` instead of `sudo docker compose`.
 
 ## Advanced: AWS
 
@@ -232,10 +238,12 @@ without it. In AWS, `terraform/` sets up:
   you when it goes down or comes back, and, the part with no easy alternative, shows a
   **"we're offline" page** while your house is unreachable.
 
-It costs about nothing (everything stays in AWS's free tiers) but needs, before you start:
+It costs about $0.50 a month (Route 53's charge for the hosted zone; the rest stays in AWS's free
+tiers) and needs, before you start:
 
 - an AWS account, and [Terraform](https://developer.hashicorp.com/terraform/install) 1.10+;
 - your domain as a hosted zone in Route 53 (Terraform only adds records to it);
+- an S3 bucket for Terraform's state (any name; `backend.hcl` says which);
 - **your domain verified in SES**, in the **us-east-1** region (SES console > Identities > Create
   identity > Domain, then add the DKIM records it shows to Route 53; it can add them for you).
   Terraform doesn't do this, and email fails until it's done. Alerts go only to an address on
@@ -252,11 +260,27 @@ terraform init -backend-config=backend.hcl
 terraform apply
 terraform output -raw server_env          # paste into .env
 terraform output -raw server_cert_pem     # save as ~/.dns-updater/cert.pem on the server
-terraform output -raw server_key_pem      # save as ~/.dns-updater/key.pem (chmod 600)
+terraform output -raw server_key_pem      # save as ~/.dns-updater/key.pem
 ```
 
-Then `COMPOSE_PROFILES=downloads,https,route53`, `SMTP_URL` with SES's details
-(`terraform output ses_smtp`), and `./setup.sh --start`.
+On the server, make the folder for the certificate first (`mkdir -m 700 ~/.dns-updater`), and
+`chmod 600 ~/.dns-updater/key.pem` after. Then in `.env`:
+
+- `COMPOSE_PROFILES=downloads,https,route53`
+- `JELLYFIN_DOMAIN` and `SEERR_DOMAIN`: the same names as `domain_name` and `seerr_domain_name` in
+  `site.auto.tfvars`
+- `SMTP_URL` for SES: its username and password are in AWS's parameter store, named in
+  `terraform output ses_smtp`, along with the server and the `from` address to use:
+
+  ```sh
+  aws ssm get-parameter --region us-east-1 --name <username_parameter> --query Parameter.Value --output text
+  aws ssm get-parameter --region us-east-1 --name <password_parameter> --with-decryption --query Parameter.Value --output text
+  ```
+
+  Then `SMTP_URL=smtp://USERNAME:PASSWORD@email-smtp.us-east-1.amazonaws.com:587/?from=<from>&to=<you@your-domain>`,
+  with any `/` in the password written as `%2F` (and `+` as `%2B`).
+
+and `./setup.sh --start`.
 
 **The outside check's code** (`outside-check/`) goes into AWS with that first `terraform apply`,
 and runs from then on. Terraform doesn't upload it again on its own; after changing it, run

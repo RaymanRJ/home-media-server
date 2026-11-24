@@ -10,11 +10,13 @@ three stacks, plus the nightly backup and a weekly email. Start it with
 | Beszel agent  | Collects those numbers for Beszel (its key and token go in `.env`)                                        |      | always                  |
 | Scrutiny      | Reads each drive's health (SMART) daily and warns before one fails                                        | 8080 | always                  |
 | watchdog      | Restarts an app that stops answering (up to three times) and emails you; also emails if the backup fails  |      | always                  |
-| weekly-report | A Monday email: who watched how much, what was added, disk space, drive health, the last backup           |      | weekly, with `SMTP_URL` |
+| weekly-report | A Monday email: who watched how much, what was added, disk space, drive health, the last backup           |      | weekly, with `SMTP_URL` and `JELLYFIN_API_KEY` |
 | backup        | Copies every app's settings and `.env`, encrypted, to a shared folder on a NAS ([restic](https://restic.net)) |      | nightly, with `RESTIC_PASSWORD` |
 
 Emails go through `SMTP_URL` in `.env` (any email account). Without it the watchdog still restarts
-stuck apps; it just can't tell you. Scrutiny has no login, so keep it home only.
+stuck apps; it just can't tell you. The weekly report also needs Jellyfin's **Playback Reporting**
+plugin (Dashboard > Plugins > Catalog) and `JELLYFIN_API_KEY`. The backup needs a shared folder
+that allows guests, or a login in `BACKUP_SHARE_OPTS`. Scrutiny has no login, so keep it home only.
 
 **In this folder:** `compose.yaml`; `watchdog/`, `weekly-report/` (small Python scripts, standard
 library only); `backup/` (the backup script and what it skips); `scrutiny/collector.yaml` (which

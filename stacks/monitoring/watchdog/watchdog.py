@@ -179,6 +179,8 @@ backup_kind = None  # "ok", "failed", "stale" or "missing", as last reported
 
 def check_backup():
     global backup_kind
+    if not os.environ.get("BACKUP_ENABLED"):
+        return  # no backup configured (RESTIC_PASSWORD empty), so nothing to watch
     try:
         b = json.load(open(BACKUP_STATUS))
         when = datetime.fromisoformat(b["time"].replace("Z", "+00:00"))

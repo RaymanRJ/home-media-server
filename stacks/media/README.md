@@ -20,8 +20,24 @@ in `COMPOSE_PROFILES` (in the repo's `.env`).
 | Recyclarr    | Keeps Sonarr's and Radarr's quality settings in step with [TRaSH Guides](https://trash-guides.info) (`recyclarr/recyclarr.yml`) |           | `downloads` |
 | Cleanuparr   | Removes downloads that are stuck, dead or fake, so Sonarr and Radarr try another                 | 11011     | `downloads` |
 
-Ports marked 80, 443 and 6881 are the only ones meant to be forwarded by your router; the rest are
-for home only.
+Ports 80, 443 and 6881 are the only ones meant to be forwarded by your router; the rest are for
+home only.
+
+## Paths and addresses to use in the apps
+
+Every app sees your media folder as `/media`, and reaches the others by name:
+
+| App         | Setting                                   | Use                                                  |
+| ----------- | ----------------------------------------- | ---------------------------------------------------- |
+| Jellyfin    | Libraries                                 | `/media/Movies`, `/media/TV` (and any other folders under `/media`) |
+| qBittorrent | Tools > Options > Downloads: save path    | `/media/downloads` (without this, downloads land inside the container) |
+| Sonarr      | Root folder; download client              | `/media/TV`; qBittorrent at `qbittorrent`, port `8081` |
+| Radarr      | Root folder; download client              | `/media/Movies`; qBittorrent at `qbittorrent`, port `8081` |
+| Sonarr, Radarr | Connect > Emby / Jellyfin              | `host.docker.internal`, port `8096`                  |
+| Prowlarr    | Settings > Apps; indexer proxy            | `http://sonarr:8989`, `http://radarr:7878`; FlareSolverr at `http://flaresolverr:8191` |
+| Seerr       | Jellyfin; Sonarr and Radarr               | `http://host.docker.internal:8096`; `sonarr` port `8989`, `radarr` port `7878` |
+| Bazarr      | Sonarr and Radarr                         | `sonarr` port `8989`, `radarr` port `7878`           |
+| Cleanuparr  | qBittorrent, Sonarr, Radarr               | `http://qbittorrent:8081`, `http://sonarr:8989`, `http://radarr:7878` |
 
 **In this folder:** `compose.yaml`; `Caddyfile` (Caddy's settings); `dns-updater/` (the Route 53
 updater's image and script); `recyclarr/recyclarr.yml`; `compose.override.example.yaml` (copy to

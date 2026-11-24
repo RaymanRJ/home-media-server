@@ -110,7 +110,7 @@ services:
   # --- Downloads (the `downloads` profile) ----------------------------------------------------
   # Prowlarr finds releases, Sonarr (TV) and Radarr (movies) pick them, qBittorrent downloads them
   # to /media/downloads, and Sonarr and Radarr file them into the library and tell Jellyfin. Home
-  # only: nothing here is forwarded by the router. All of them see the pool at /media, the same
+  # only, except qBittorrent's torrent port (6881), which the router forwards. All of them see the pool at /media, the same
   # path as Jellyfin, so paths match everywhere without mapping. They get the pool whole and
   # writable (Jellyfin keeps it read-only): one mount, so a finished download can be hardlinked
   # into the library instead of copied when both are on the same drive.

@@ -71,7 +71,7 @@ wrong, say so: the articles live in another repo.
   `github_repository` set, Terraform also makes a deploy role (and needs the account's GitHub OIDC
   provider), and `.github/workflows/outside-check.yaml` deploys pushes to main when the repository
   variable `OUTSIDE_CHECK_DEPLOY` is `true`. Empty `github_repository` (the default): neither.
-- `docs/router.md`: the router's settings (port forwards, only for `https`), which live in no
+- `docs/router.md`: the router's settings (forwards for `https` and `downloads`), which live in no
   config file.
 
 ## Conventions
