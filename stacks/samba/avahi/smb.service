@@ -1,0 +1,18 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!-- Announces the Samba container to Macs and phones (mDNS), from the host's Avahi: Docker's
+     AppArmor profile won't let smbd reach the host's D-Bus to do it itself. Copied to
+     /etc/avahi/services/. -->
+<service-group>
+  <name replace-wildcards="yes">%h</name>
+  <service>
+    <type>_smb._tcp</type>
+    <port>445</port>
+  </service>
+  <!-- The icon Finder shows for the server. -->
+  <service>
+    <type>_device-info._tcp</type>
+    <port>0</port>
+    <txt-record>model=MacSamba</txt-record>
+  </service>
+</service-group>

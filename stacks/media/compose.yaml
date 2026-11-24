@@ -1,0 +1,280 @@
+# The media stack: Jellyfin, Caddy in front of it, the dns-updater, and the download apps (the
+# `downloads` profile, on when COMPOSE_PROFILES in .env includes it). Every value that differs
+# between machines comes from the repo's .env (this folder's .env links to it); this machine's GPU
+# goes in compose.override.yaml here, which Compose loads on its own (copy the .example).
+name: media
+
+# Health check timing for every service: a check a minute, unhealthy after three
+# failures in a row, failures in the first five minutes not counted (boot can be slow).
+x-health: &health
+  interval: 1m
+  timeout: 30s
+  retries: 3
+  start_period: 5m
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:12.2
+    container_name: jellyfin
+    network_mode: host
+    volumes:
+      - ${CONFIG_ROOT}/.jellyfin-config/config:/config
+      - ${CONFIG_ROOT}/.jellyfin-config/cache:/cache
+      # The mergerfs pool of the drives' media folders, read-only.
+      - ${MEDIA_POOL}:/media:ro
+    restart: unless-stopped
+    environment:
+      - JELLYFIN_PublishedServerUrl=https://${JELLYFIN_DOMAIN}
+      # Without it the container runs on UTC, so scheduled tasks (trickplay at 3:00) run at the wrong hour.
+      - TZ=${TZ}
+    # The image's own check (its /health), with more time to start: an upgrade's database migration
+    # can take minutes, and the watchdog would restart it part way through.
+    healthcheck:
+      <<: *health
+      start_period: 15m
+
+  # Terminates HTTPS on ports 80 and 443 and forwards to Jellyfin on localhost:8096, and to Seerr.
+  caddy:
+    image: caddy:2.11
+    container_name: caddy
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${CONFIG_ROOT}/.caddy/data:/data
+      - ${CONFIG_ROOT}/.caddy/config:/config
+    environment:
+      - JELLYFIN_DOMAIN
+      - SEERR_DOMAIN
+    depends_on:
+      - jellyfin
+    restart: unless-stopped
+    # Its admin API, on localhost only. The outside check covers HTTPS itself.
+    healthcheck:
+      <<: *health
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:2019/config/"]
+
+  # Keeps the domain's A records in Route 53 on the home IP (see dns-updater/update-dns.sh), with
+  # AWS credentials from IAM Roles Anywhere. ~/.dns-updater holds the server's cert.pem and key.pem
+  # from Terraform; there's no access key.
+  dns-updater:
+    build: ./dns-updater
+    container_name: dns-updater
+    volumes:
+      - ${CONFIG_ROOT}/.dns-updater:/certs:ro
+    environment:
+      - JELLYFIN_DOMAIN
+      - HOSTED_ZONE_ID
+      - TRUST_ANCHOR_ARN
+      - PROFILE_ARN
+      - ROLE_ARN
+      - AWS_REGION=us-east-1
+    restart: unless-stopped
+    # update-dns.sh touches /tmp/healthy each time Route 53 holds the current IP: fails after three
+    # rounds in a row without (no internet, AWS refusing the certificate).
+    healthcheck:
+      <<: *health
+      test: ["CMD-SHELL", "test -n \"$$(find /tmp/healthy -mmin -15)\""]
+
+  # --- Downloads ---------------------------------------------------------
+  # Prowlarr finds releases, Sonarr (TV) and Radarr (movies) pick them, qBittorrent downloads them
+  # to /media/downloads, and Sonarr and Radarr file them into the library and tell Jellyfin. Home
+  # only: nothing here is forwarded by the router. All of them see the pool at /media, the same
+  # path as Jellyfin, so paths match everywhere without mapping. They get the pool whole and
+  # writable (Jellyfin keeps it read-only): one mount, so a finished download can be hardlinked
+  # into the library instead of copied when both are on the same drive.
+  #
+  # Each runs as PUID:PGID (the user who owns the media), with group-writable files (UMASK 002).
+
+  # The download client. Its web UI is on 8081, since Scrutiny has 8080. 6881 is its torrent port
+  # (Options > Connection, fixed, not random), forwarded by the router so peers can connect in.
+  # UPnP is off in its settings, so it never opens ports on the router itself (docs/router.md).
+  # To put it behind a VPN: a gluetun service, `network_mode: service:gluetun` here, and these
+  # ports moved to gluetun.
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.3.0
+    container_name: qbittorrent
+    profiles: ["downloads"]
+    ports:
+      - "8081:8081"
+      - "6881:6881"
+      - "6881:6881/udp"
+    volumes:
+      - ${CONFIG_ROOT}/.qbittorrent:/config
+      - ${MEDIA_POOL}/downloads:/media/downloads
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002
+      - TZ=${TZ}
+      - WEBUI_PORT=8081
+    restart: unless-stopped
+    healthcheck:
+      <<: *health
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8081/"]
+
+  # Indexers, in one place, synced to Sonarr and Radarr.
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:2.7.0
+    container_name: prowlarr
+    profiles: ["downloads"]
+    ports:
+      - "9696:9696"
+    volumes:
+      - ${CONFIG_ROOT}/.prowlarr:/config
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002
+      - TZ=${TZ}
+    restart: unless-stopped
+    healthcheck:
+      <<: *health
+      test: ["CMD", "curl", "-fsS", "http://localhost:9696/ping"]
+
+  # Gets Prowlarr past Cloudflare's check on indexers that use it (a headless browser). Prowlarr
+  # uses it only for indexers tagged `flaresolverr` (Settings > Indexers). Nothing is published:
+  # only Prowlarr reaches it, at http://flaresolverr:8191.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
+    container_name: flaresolverr
+    profiles: ["downloads"]
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=info
+    restart: unless-stopped
+    healthcheck:
+      <<: *health
+      test: ["CMD", "curl", "-fsS", "http://localhost:8191/health"]
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:4.0.20
+    container_name: sonarr
+    profiles: ["downloads"]
+    ports:
+      - "8989:8989"
+    volumes:
+      - ${CONFIG_ROOT}/.sonarr:/config
+      - ${MEDIA_POOL}:/media
+    # Jellyfin is on the host network: reachable from here as host.docker.internal:8096.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002
+      - TZ=${TZ}
+    restart: unless-stopped
+    healthcheck:
+      <<: *health
+      test: ["CMD", "curl", "-fsS", "http://localhost:8989/ping"]
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:6.4.4
+    container_name: radarr
+    profiles: ["downloads"]
+    ports:
+      - "7878:7878"
+    volumes:
+      - ${CONFIG_ROOT}/.radarr:/config
+      - ${MEDIA_POOL}:/media
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002
+      - TZ=${TZ}
+    restart: unless-stopped
+    healthcheck:
+      <<: *health
+      test: ["CMD", "curl", "-fsS", "http://localhost:7878/ping"]
+
+  # Subtitles for what Sonarr and Radarr manage, saved next to the video files.
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:1.6.2
+    container_name: bazarr
+    profiles: ["downloads"]
+    ports:
+      - "6767:6767"
+    volumes:
+      - ${CONFIG_ROOT}/.bazarr:/config
+      - ${MEDIA_POOL}:/media
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002
+      - TZ=${TZ}
+    restart: unless-stopped
+    healthcheck:
+      <<: *health
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:6767/api/system/ping"]
+
+  # Requests: Jellyfin users sign in with their Jellyfin accounts and ask for shows and movies,
+  # which go to Sonarr and Radarr. (Seerr is the merged Overseerr and Jellyseerr.) It runs as uid
+  # 1000 itself.
+  seerr:
+    image: ghcr.io/seerr-team/seerr:v3.5.2
+    container_name: seerr
+    profiles: ["downloads"]
+    init: true
+    ports:
+      - "5055:5055"
+    volumes:
+      - ${CONFIG_ROOT}/.seerr:/app/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TZ=${TZ}
+      - LOG_LEVEL=info
+    restart: unless-stopped
+    # No curl in this image.
+    healthcheck:
+      <<: *health
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:5055/api/v1/status"]
+
+  # Keeps the download queue moving: removes torrents that stall, never get their metadata or fail
+  # to import, blocklists the release and has Sonarr or Radarr search for another; skips malware and
+  # archive files as torrents start. Settings are in its web UI and
+  # its database in ~/.cleanuparr.
+  cleanuparr:
+    image: ghcr.io/cleanuparr/cleanuparr:2.10.12
+    container_name: cleanuparr
+    profiles: ["downloads"]
+    ports:
+      - "11011:11011"
+    volumes:
+      - ${CONFIG_ROOT}/.cleanuparr:/config
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002
+      - TZ=${TZ}
+    restart: unless-stopped
+    healthcheck:
+      <<: *health
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:11011/health"]
+
+  # Sonarr's and Radarr's quality profiles and custom formats from TRaSH Guides, as kept in
+  # recyclarr/recyclarr.yml; synced daily. Its own state and logs are in ~/.recyclarr. The API keys
+  # come from .env.
+  recyclarr:
+    image: ghcr.io/recyclarr/recyclarr:8.8.1
+    container_name: recyclarr
+    profiles: ["downloads"]
+    user: "${PUID}:${PGID}"
+    volumes:
+      - ${CONFIG_ROOT}/.recyclarr:/config
+      - ./recyclarr/recyclarr.yml:/config/recyclarr.yml:ro
+    environment:
+      - TZ=${TZ}
+      - CRON_SCHEDULE=@daily
+      - SONARR_API_KEY
+      - RADARR_API_KEY
+    depends_on:
+      - sonarr
+      - radarr
+    restart: unless-stopped
+    # It only runs on a schedule: the scheduler is running.
+    healthcheck:
+      <<: *health
+      test: ["CMD", "pgrep", "-x", "supercronic"]

@@ -1,0 +1,12 @@
+# This machine's hardware for the media stack: copy to compose.override.yaml (gitignored) and edit,
+# or leave it out. Compose merges it into compose.yaml on its own.
+
+services:
+  # VA-API transcoding on the CPU's integrated graphics. The group is the host's `render` group
+  # (`getent group render`), which owns the device. In Jellyfin: Dashboard > Playback > Transcoding,
+  # VAAPI, /dev/dri/renderD128.
+  jellyfin:
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    group_add:
+      - "109"

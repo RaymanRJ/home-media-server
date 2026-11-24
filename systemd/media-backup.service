@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up the media server's configs and irreplaceable media to the NAS share
+Requires=docker.service
+After=docker.service home-media@media.service home-media@monitoring.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/home-media-server/stacks/monitoring
+ExecStart=/usr/bin/docker compose run --rm backup
+TimeoutStartSec=6h

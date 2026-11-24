@@ -1,0 +1,180 @@
+# The monitoring stack: Beszel, Scrutiny and the watchdog, plus the weekly report and the nightly
+# backup, which only run when their timers start them. Every value that differs between machines
+# comes from the repo's .env (this folder's .env links to it); this machine's drives go in
+# compose.override.yaml here, which Compose loads on its own (copy the .example).
+name: monitoring
+
+# Health check timing for every service: a check a minute, unhealthy after three
+# failures in a row, failures in the first five minutes not counted (boot can be slow).
+x-health: &health
+  interval: 1m
+  timeout: 30s
+  retries: 3
+  start_period: 5m
+
+services:
+  # Server monitoring: CPU, memory, network, disks and containers, with
+  # history and alerts. Home only: the router forwards only 80 and 443.
+  beszel:
+    image: henrygd/beszel:0.21.0
+    container_name: beszel
+    ports:
+      - "8090:8090"
+    volumes:
+      - ${CONFIG_ROOT}/.beszel/data:/beszel_data
+    restart: unless-stopped
+    # No shell in the image: its own health command.
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/beszel", "health", "--url", "http://localhost:8090"]
+
+  # Collects the numbers for the hub above. On the host network so it sees the real interfaces.
+  # KEY and TOKEN come from the hub's "Add system" dialog, through .env. The drives to report on are
+  # mounted under /extra-filesystems in compose.override.yaml.
+  beszel-agent:
+    image: henrygd/beszel-agent:0.21.0
+    container_name: beszel-agent
+    network_mode: host
+    volumes:
+      # Read-only: per-container CPU, memory and network, for every stack's containers.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - LISTEN=45876
+      - HUB_URL=http://localhost:8090
+      - KEY=${BESZEL_AGENT_KEY}
+      - TOKEN=${BESZEL_AGENT_TOKEN}
+    restart: unless-stopped
+    healthcheck:
+      <<: *health
+      test: ["CMD", "/agent", "health"]
+
+  # Drive health: SMART attributes over time, and a warning before a drive
+  # fails. Web UI, collector and its InfluxDB in one image; only the UI's port is published. The
+  # drives themselves are passed in by compose.override.yaml.
+  scrutiny:
+    image: ghcr.io/analogj/scrutiny:v0.9.5-omnibus
+    container_name: scrutiny
+    ports:
+      - "8080:8080"
+    # Raw disk reads for smartctl, instead of a privileged container.
+    cap_add:
+      - SYS_RAWIO
+    volumes:
+      - /run/udev:/run/udev:ro
+      # Its settings database lives here too, so the folder is writable; the collector config
+      # from this repo sits on top of it, read-only.
+      - ${CONFIG_ROOT}/.scrutiny/config:/opt/scrutiny/config
+      - ./scrutiny/collector.yaml:/opt/scrutiny/config/collector.yaml:ro
+      - ${CONFIG_ROOT}/.scrutiny/influxdb:/opt/scrutiny/influxdb
+    environment:
+      - TZ=${TZ}
+      # Daily at 02:30, before the 3:00 trickplay run keeps the drives busy; also once at startup.
+      - COLLECTOR_CRON_SCHEDULE=30 2 * * *
+      # Where failure warnings go: an SMTP URL from .env.
+      - SCRUTINY_NOTIFY_URLS
+    restart: unless-stopped
+    # Its API. After a reboot its start can hang with the container still up (s6 timed out).
+    healthcheck:
+      <<: *health
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
+
+  # Restarts a container that fails its health check and emails about it, and about a stopped
+  # container or a failed backup. It watches every stack's containers, through
+  # the Docker socket, which is read-write so it can restart them: that's root on the host, so the
+  # script is ours and small.
+  watchdog:
+    build: ./watchdog
+    container_name: watchdog
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The nightly backup's result.
+      - ${STATUS_DIR}:/status:ro
+    environment:
+      - TZ=${TZ}
+      - SMTP_URL=${SCRUTINY_NOTIFY_URLS}
+    # It touches /tmp/heartbeat after every round of checks.
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python3", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/heartbeat') > 300)"]
+    restart: unless-stopped
+
+  # The weekly email report. Not started with the rest: the
+  # media-weekly-report timer runs it once a week with `docker compose run --rm weekly-report`.
+  # Each data drive is mounted whole at /drives/<label> in compose.override.yaml.
+  weekly-report:
+    build: ./weekly-report
+    profiles: ["report"]
+    network_mode: host
+    volumes:
+      # Copied to /tmp inside the container before reading; the hub's files are never written.
+      - ${CONFIG_ROOT}/.beszel/data:/beszel:ro
+      # Cleanuparr's databases, for why each removed download was removed; also copied first.
+      - ${CONFIG_ROOT}/.cleanuparr:/cleanuparr:ro
+      # The nightly backup's result, and where the inventory CSVs are written (the backup copies them).
+      - ${STATUS_DIR}:/status:ro
+      - ${INVENTORY_DIR}:/out
+    environment:
+      - TZ=${TZ}
+      # The same SMTP URL Scrutiny sends with.
+      - SMTP_URL=${SCRUTINY_NOTIFY_URLS}
+      - JELLYFIN_API_KEY
+      - SONARR_API_KEY
+      - RADARR_API_KEY
+      - SEERR_API_KEY
+      - SCRUTINY_DRIVE_LABELS
+      - PRIVATE_DIR
+
+  # The nightly backup. Not started with the rest: the media-backup timer runs it
+  # with `docker compose run --rm backup`. It copies every stack's data folders; more to back up
+  # goes under /src in compose.override.yaml.
+  backup:
+    image: restic/restic:0.19.1
+    profiles: ["backup"]
+    hostname: media-server
+    # Host network, to reach Jellyfin's API on localhost for its database backup.
+    network_mode: host
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    volumes:
+      - ./backup/backup.sh:/backup.sh:ro
+      - ./backup/exclude.txt:/exclude.txt:ro
+      - backup-target:/repo
+      - ${CONFIG_ROOT}/.restic-cache:/root/.cache/restic
+      # Jellyfin's backup zips: writable only so old ones can be removed.
+      - ${CONFIG_ROOT}/.jellyfin-config/config/data/backups:/jellyfin-backups
+      - ${STATUS_DIR}:/status
+      # What gets backed up, all read-only, under /src.
+      - ${CONFIG_ROOT}/.jellyfin-config/config:/src/jellyfin-config:ro
+      - ${CONFIG_ROOT}/.beszel:/src/beszel:ro
+      - ${CONFIG_ROOT}/.scrutiny:/src/scrutiny:ro
+      - ${CONFIG_ROOT}/.caddy:/src/caddy:ro
+      - ${CONFIG_ROOT}/.dns-updater:/src/dns-updater:ro
+      - ${CONFIG_ROOT}/.samba:/src/samba:ro
+      # The download apps' settings. Not Recyclarr's: its config is in the repo.
+      - ${CONFIG_ROOT}/.qbittorrent:/src/qbittorrent:ro
+      - ${CONFIG_ROOT}/.prowlarr:/src/prowlarr:ro
+      - ${CONFIG_ROOT}/.sonarr:/src/sonarr:ro
+      - ${CONFIG_ROOT}/.radarr:/src/radarr:ro
+      - ${CONFIG_ROOT}/.bazarr:/src/bazarr:ro
+      - ${CONFIG_ROOT}/.seerr:/src/seerr:ro
+      - ${CONFIG_ROOT}/.cleanuparr:/src/cleanuparr:ro
+      # The repo's .env and every stack's compose.override.yaml: this machine's settings.
+      - ../../.env:/src/repo/.env:ro
+      - ../:/src/repo/stacks:ro
+      - ${INVENTORY_DIR}:/src/inventory:ro
+      - /etc/fstab:/src/host/fstab:ro
+    environment:
+      - RESTIC_REPOSITORY=/repo/media-server-backup
+      - RESTIC_PASSWORD
+      - JELLYFIN_API_KEY
+
+volumes:
+  # An SMB share on a NAS (BACKUP_SHARE in .env), mounted by Docker itself (no fstab line on the
+  # host). Here as a guest share with no login: the restic repository in it is encrypted, so the
+  # files are unreadable without RESTIC_PASSWORD. For a share that needs a login, add
+  # `username=...,password=...` to `o`.
+  backup-target:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: ${BACKUP_SHARE}
+      o: "guest,vers=3.0,uid=0,gid=0,file_mode=0600,dir_mode=0700"

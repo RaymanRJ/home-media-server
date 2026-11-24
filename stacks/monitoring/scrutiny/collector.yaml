@@ -1,0 +1,19 @@
+# Scrutiny's collector. Mounted read-only into the container.
+#
+# compose.override.yaml maps each drive into the container under a fixed name by its serial
+# (/dev/disk/by-id/...), so the names below never drift when the host reorders sdX at boot. List
+# one entry per mapped drive. With no devices listed, the collector scans for them itself.
+version: 1
+
+host:
+  id: media-server
+
+# Drives behind a USB bridge often report wrongly in smartctl's scan; `sat` passes SMART commands
+# through it. Internal SATA drives scan as `scsi` but also answer as `sat`, which gives the full ATA
+# attribute set. Example, matching compose.override.example.yaml:
+#
+# devices:
+#   - device: /dev/sda   # system disk
+#     type: 'sat'
+#   - device: /dev/sdb   # disk1
+#     type: 'sat'

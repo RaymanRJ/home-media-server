@@ -1,0 +1,34 @@
+# This machine's drives for the monitoring stack: copy to compose.override.yaml (gitignored) and
+# edit. Compose merges it into compose.yaml on its own: lists here are added to the service's own.
+# Disk IDs come from `ls -l /dev/disk/by-id/`, drive mount points from `findmnt` or /etc/fstab.
+
+services:
+  # Each drive's empty lost+found, read-only, so the agent reports every filesystem's usage without
+  # seeing any files. Folders are `<device>__<label>`: the agent finds the real device itself (the
+  # part before `__` is only a fallback), and the label is what Beszel and the weekly report show.
+  beszel-agent:
+    volumes:
+      - /mnt/<drive-1-uuid>/lost+found:/extra-filesystems/drive__disk1:ro
+      - /mnt/<drive-2-uuid>/lost+found:/extra-filesystems/drive__disk2:ro
+
+  # By serial, not sdX: a USB enclosure can reorder sdX at boot. Each drive gets the same name inside
+  # the container every time, so Scrutiny's view stays stable. List the same names in
+  # scrutiny/collector.yaml, and label them for the weekly report with SCRUTINY_DRIVE_LABELS.
+  scrutiny:
+    devices:
+      - /dev/disk/by-id/ata-<model>_<serial>:/dev/sda   # system disk
+      - /dev/disk/by-id/ata-<model>_<serial>:/dev/sdb   # disk1
+      - /dev/disk/by-id/ata-<model>_<serial>:/dev/sdc   # disk2
+
+  # Each data drive whole, read-only, for the inventory and the file lists: which drive holds each
+  # file (mergerfs hides it). The folder name is the drive's label. Nothing here is ever written.
+  weekly-report:
+    volumes:
+      - /mnt/<drive-1-uuid>:/drives/disk1:ro
+      - /mnt/<drive-2-uuid>:/drives/disk2:ro
+
+  # More to back up, read-only under /src: the parts of the library that can't be downloaded again.
+  backup:
+    volumes:
+      - /mnt/media/Music:/src/media/Music:ro
+      - /mnt/media/Books:/src/media/Books:ro

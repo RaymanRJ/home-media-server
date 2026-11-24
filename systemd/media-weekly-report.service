@@ -1,0 +1,9 @@
+[Unit]
+Description=Send the media server's weekly email report
+Requires=docker.service
+After=docker.service home-media@media.service home-media@monitoring.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/home-media-server/stacks/monitoring
+ExecStart=/usr/bin/docker compose run --rm --build weekly-report

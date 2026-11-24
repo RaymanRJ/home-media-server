@@ -1,0 +1,29 @@
+# The Samba stack: file shares on ports 445 and 139, at home only. Every value that
+# differs between machines comes from the repo's .env (this folder's .env links to it); more shares
+# go in compose.override.yaml here, which Compose loads on its own (copy the .example).
+name: samba
+
+services:
+  # Host network, so it answers on the server's own address and name. ~/.samba/private holds the
+  # password database. The host's Avahi announces it to Macs and phones (avahi/smb.service).
+  samba:
+    build:
+      context: .
+      args:
+        SAMBA_USER: ${SAMBA_USER}
+        SAMBA_UID: ${PUID}
+        SAMBA_GID: ${PGID}
+    container_name: samba
+    network_mode: host
+    volumes:
+      - ./smb.conf:/etc/samba/smb.conf:ro
+      - ${CONFIG_ROOT}/.samba/private:/var/lib/samba/private
+      - ${SAMBA_SHARE_DIR}:/shares/share
+    restart: unless-stopped
+    # smbd on both ports, and nmbd running. Timing as the other stacks.
+    healthcheck:
+      interval: 1m
+      timeout: 30s
+      retries: 3
+      start_period: 5m
+      test: ["CMD-SHELL", "python3 -c 'import socket; [socket.create_connection((\"127.0.0.1\", p), 10) for p in (445, 139)]' && pgrep -x nmbd >/dev/null"]

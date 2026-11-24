@@ -1,0 +1,16 @@
+# HTTPS in front of Jellyfin. Caddy gets and renews the Let's Encrypt certificates itself.
+# JELLYFIN_DOMAIN and SEERR_DOMAIN come from the repo's .env, through the Compose file.
+{$JELLYFIN_DOMAIN} {
+	reverse_proxy localhost:8096
+}
+
+# Seerr, the request page, on its own name: users sign in with their Jellyfin accounts. Without
+# SEERR_DOMAIN it's seerr.localhost, which gets Caddy's own certificate and nothing from outside.
+{$SEERR_DOMAIN:seerr.localhost} {
+	reverse_proxy localhost:5055
+}
+
+# www. gets its own certificate and redirects to the domain above.
+www.{$JELLYFIN_DOMAIN} {
+	redir https://{$JELLYFIN_DOMAIN}{uri} permanent
+}

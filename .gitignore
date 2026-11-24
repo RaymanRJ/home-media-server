@@ -1,0 +1,17 @@
+# This machine's settings and hardware (only the .example files are committed). The leading slash
+# keeps the stacks' .env links, which are committed, out of this rule.
+/.env
+stacks/*/compose.override.yaml
+
+# Terraform: local state, provider cache and personal config (only the .example files are public)
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfplan
+backend.hcl
+terraform/.build/
+__pycache__/
+
+# Notes about your own server, for Claude Code (see CLAUDE.md)
+CLAUDE.local.md

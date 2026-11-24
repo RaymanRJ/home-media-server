@@ -1,0 +1,86 @@
+name: Outside check
+
+# Checks every pull request; deploys main to the outside check's Lambda.
+# Terraform owns the function's configuration, role and schedule; this only replaces its code.
+# Deploying needs these repository secrets (`terraform output github_actions_secrets`):
+#   AWS_REGION, AWS_DEPLOY_ROLE_ARN, OUTSIDE_CHECK_FUNCTION
+# and the repository variable OUTSIDE_CHECK_DEPLOY set to true. Without it only the check runs, so
+# a copy of this repo without AWS set up doesn't fail on every push.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "outside-check/**"
+      - ".github/workflows/outside-check.yaml"
+  pull_request:
+    paths:
+      - "outside-check/**"
+      - ".github/workflows/outside-check.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: outside-check-${{ github.ref }}
+  # Superseded PR checks can stop; a deploy always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The Lambda's runtime, so a syntax error fails here and not in AWS.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - run: python -m py_compile outside-check/check.py
+
+      - run: cd outside-check && zip -X ../outside-check.zip check.py maintenance.html
+
+      - uses: actions/upload-artifact@v7
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          name: outside-check
+          path: outside-check.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.OUTSIDE_CHECK_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    # Only this job can request AWS credentials, and only on main (the deploy role checks the branch too).
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FUNCTION: ${{ secrets.OUTSIDE_CHECK_FUNCTION }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: outside-check
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Deploy
+        run: |
+          aws lambda update-function-code --function-name "$FUNCTION" \
+            --zip-file fileb://outside-check.zip --query CodeSha256 --output text
+          aws lambda wait function-updated --function-name "$FUNCTION"
+
+      # One real check, as the schedule would run it. Fails the job if the code crashes, not if the
+      # site is down: that's the function's own result, and it emails about it as usual.
+      - name: Run once
+        run: |
+          aws lambda invoke --function-name "$FUNCTION" --query FunctionError --output text out.json > err.txt
+          cat out.json; echo
+          if [ "$(cat err.txt)" != "None" ]; then echo "::error::the function failed: $(cat err.txt)"; exit 1; fi

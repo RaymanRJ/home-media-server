@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Media server offline</title>
+<!-- Inline, so browsers don't keep the icon they cached from Jellyfin or Seerr. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23d08a3c' fill-opacity='.25'/%3E%3Ccircle cx='16' cy='16' r='8' fill='%23d08a3c'/%3E%3C/svg%3E">
+<style>
+  :root { --bg: #f4f2ee; --fg: #22201c; --muted: #77716a; --dot: #d08a3c; --halo: rgba(208, 138, 60, 0.18); }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121315; --fg: #ecebe8; --muted: #8d8f94; --dot: #e0a050; --halo: rgba(224, 160, 80, 0.16); }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; min-height: 100dvh; padding: 24px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .dot {
+    width: 16px; height: 16px; margin-bottom: 32px; border-radius: 50%;
+    background: var(--dot); box-shadow: 0 0 0 8px var(--halo);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 8px var(--halo); }
+    50% { box-shadow: 0 0 0 16px transparent; }
+  }
+  @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+  h1 { margin: 0 0 10px; font-size: clamp(1.6rem, 6vw, 2.2rem); font-weight: 600; letter-spacing: -0.02em; }
+  p { margin: 0; font-size: 1.05rem; color: var(--muted); }
+  .timer { margin-top: 28px; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<main>
+  <div class="dot" aria-hidden="true"></div>
+  <h1>The media server is offline.</h1>
+  <p>Please try again later.</p>
+  <!-- check.py fills in when the outage was first seen; left as is, the timer stays hidden. -->
+  <p class="timer" data-since="{{DOWN_SINCE}}" hidden>Offline for <span></span></p>
+</main>
+<script>
+  const timer = document.querySelector(".timer");
+  const since = Date.parse(timer.dataset.since);
+  function tick() {
+    const min = Math.floor((Date.now() - since) / 60000);
+    const d = Math.floor(min / 1440), h = Math.floor(min / 60) % 24, m = min % 60;
+    timer.querySelector("span").textContent =
+      d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${Math.max(m, 1)} min`;
+  }
+  if (!isNaN(since)) { tick(); timer.hidden = false; setInterval(tick, 30000); }
+</script>
+</body>
+</html>

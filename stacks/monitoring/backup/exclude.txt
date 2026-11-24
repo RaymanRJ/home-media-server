@@ -1,0 +1,22 @@
+# Left out of the backup (restic --exclude-file). Jellyfin's live database is copied from the zip
+# its own backup makes first; copying the live files while it writes could catch them half-written.
+/src/jellyfin-config/data/jellyfin.db
+/src/jellyfin-config/data/jellyfin.db-shm
+/src/jellyfin-config/data/jellyfin.db-wal
+/src/jellyfin-config/log
+
+# The download apps: the same for their live databases. Prowlarr, Sonarr,
+# Radarr and Bazarr each zip their own daily backup (in Backups/ or backup/), which is kept. Seerr
+# and Cleanuparr have no backup of their own; their small databases are copied as they are. Logs
+# and cached artwork aren't worth keeping.
+/src/prowlarr/*.db*
+/src/sonarr/*.db*
+/src/radarr/*.db*
+/src/bazarr/db/*.db*
+/src/*/logs
+/src/*/log
+/src/sonarr/MediaCover
+/src/radarr/MediaCover
+/src/seerr/logs
+/src/seerr/cache
+/src/qbittorrent/qBittorrent/logs

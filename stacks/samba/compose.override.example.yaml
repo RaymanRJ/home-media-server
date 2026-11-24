@@ -1,0 +1,7 @@
+# More shares for the Samba stack: copy to compose.override.yaml (gitignored) and edit. Mount each
+# folder under /shares here, and add a block for it to smb.conf.
+
+services:
+  samba:
+    volumes:
+      - /mnt/<drive-2-uuid>/private:/shares/private

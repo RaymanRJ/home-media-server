@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly backup to the NAS share
+
+[Timer]
+# Late enough that nobody is watching; a nightly run only sends what changed, so it's done well
+# before Scrutiny's 02:30 scan and the 3:00 trickplay run.
+OnCalendar=*-*-* 02:00:00
+# If the server was off at 02:00, run it when it comes back.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
