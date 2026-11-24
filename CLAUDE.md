@@ -23,6 +23,12 @@ itself, you can't run the stacks: say what the user needs to run on the server, 
 Notes about the user's own server (hardware, drives, what's set up, decisions) belong in
 `CLAUDE.local.md` (gitignored), not here.
 
+The README stays short: what's here and how to get it running. The explanations and deep dives are
+articles on rrjamal.ca, linked from the README's top and its "Further reading"
+(`https://rrjamal.ca/articles/<slug>`; the setup guide is `home-media-server-setup-guide`). Link to
+them rather than repeating them, and when a change makes an article's description of this repo
+wrong, say so: the articles live in another repo.
+
 ## Layout
 
 - `stacks/media/`: Jellyfin, always; the rest by profile, enabled by `COMPOSE_PROFILES` in `.env`:

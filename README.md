@@ -5,6 +5,10 @@ requests and automatic downloads, file shares, monitoring that fixes stuck apps,
 backups. Everything runs in Docker, set up by one script. No cloud account is needed; a few extras
 can use AWS if you have it.
 
+**New to this?** [Setting up a home media server with Docker, step by step](https://rrjamal.ca/articles/home-media-server-setup-guide)
+walks through this repo from a spare computer to a film playing on your TV. More background is in
+[Further reading](#further-reading).
+
 ## Contents
 
 - [What's in it](#whats-in-it)
@@ -18,6 +22,7 @@ can use AWS if you have it.
 - [Backups](#backups)
 - [Advanced: AWS](#advanced-aws)
 - [Repository layout](#repository-layout)
+- [Further reading](#further-reading)
 - [License](#license)
 
 ## What's in it
@@ -195,7 +200,8 @@ sudo docker compose run --rm -v "$HOME/restore:/restore" --entrypoint restic bac
 without it. In AWS, `terraform/` sets up:
 
 - **Your own domain** in Route 53, kept on your home IP by the `route53` profile's updater (instead
-  of DuckDNS). The server gets AWS access from a certificate (IAM Roles Anywhere), never a password.
+  of DuckDNS). The server gets AWS access from a certificate (IAM Roles Anywhere), never a password:
+  the same pattern as [a Raspberry Pi camera on AWS with no access keys](https://rrjamal.ca/articles/raspberry-pi-aws-without-access-keys).
 - **Email through SES**, from your own domain.
 - **The outside check:** a small function in AWS that opens your site every five minutes, emails
   you when it goes down or comes back, and, the part with no easy alternative, shows a
@@ -222,7 +228,8 @@ and runs from then on. Terraform doesn't upload it again on its own; after chang
 `terraform apply -replace=aws_lambda_function.monitor`.
 
 **Automatic deploys (optional):** to have GitHub upload the code on every push instead, as this
-repo's [workflow](.github/workflows/outside-check.yaml) does:
+repo's [workflow](.github/workflows/outside-check.yaml) does (how that works without stored keys:
+[Deploying from GitHub Actions to AWS without access keys](https://rrjamal.ca/articles/github-actions-aws-without-access-keys)):
 
 1. Fork this repo (or push your copy to GitHub), and enable Actions on it.
 2. Set `github_repository = "you/home-media-server"` in `site.auto.tfvars` and `terraform apply`.
@@ -253,6 +260,17 @@ terraform/, outside-check/    the optional AWS setup
 docs/router.md                port forwarding and router settings
 CLAUDE.md                     guidance for Claude Code; your own server's notes go in CLAUDE.local.md
 ```
+
+## Further reading
+
+The why and the details behind this repo, in plain language:
+
+- [Setting up a home media server with Docker, step by step](https://rrjamal.ca/articles/home-media-server-setup-guide): this repo, from start to finish
+- [A home media server stack, reviewed](https://rrjamal.ca/articles/home-media-server-stack-reviewed): what Jellyfin, Sonarr, Radarr, Seerr and the rest each do
+- [Monitoring a home media server](https://rrjamal.ca/articles/home-server-monitoring): the monitoring stack, the watchdog and the backup
+- [Putting Jellyfin behind HTTPS with Caddy and Let's Encrypt](https://rrjamal.ca/articles/jellyfin-https-caddy-lets-encrypt): the `https` profile, and why a router's dynamic DNS name broke it
+- [Samba in Docker](https://rrjamal.ca/articles/samba-docker-home-server): the samba stack
+- [Tuning Jellyfin on an old server with no graphics card](https://rrjamal.ca/articles/tuning-jellyfin-old-server) and [What is transcoding?](https://rrjamal.ca/articles/what-is-transcoding): Jellyfin's settings, and the GPU override
 
 ## License
 
