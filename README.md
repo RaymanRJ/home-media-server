@@ -150,6 +150,9 @@ more folders, see `stacks/samba/compose.override.example.yaml`.
 
 ## Watching away from home
 
+Two free ways, below: Tailscale (simplest) or DuckDNS with HTTPS. A third, your own domain on
+AWS, is in [Advanced: AWS](#advanced-aws) further down; you don't need it.
+
 ### Tailscale (no port forwarding)
 
 The simplest: install [Tailscale](https://tailscale.com/download) on the server
