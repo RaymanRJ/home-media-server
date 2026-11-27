@@ -159,11 +159,11 @@ services:
       - ${CONFIG_ROOT}/.bazarr:/src/bazarr:ro
       - ${CONFIG_ROOT}/.seerr:/src/seerr:ro
       - ${CONFIG_ROOT}/.cleanuparr:/src/cleanuparr:ro
-      # The repo's .env and every stack's compose.override.yaml: this machine's settings.
+      # The repo's .env and every stack's compose.override.yaml: this machine's settings. The
+      # stacks folder also holds backup/fstab, the host's mounts, copied there by media-backup.service.
       - ../../.env:/src/repo/.env:ro
       - ../:/src/repo/stacks:ro
       - ${INVENTORY_DIR}:/src/inventory:ro
-      - /etc/fstab:/src/host/fstab:ro
     environment:
       - RESTIC_REPOSITORY=/repo/media-server-backup
       - RESTIC_PASSWORD

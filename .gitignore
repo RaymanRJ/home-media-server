@@ -2,6 +2,8 @@
 # keeps the stacks' .env links, which are committed, out of this rule.
 /.env
 stacks/*/compose.override.yaml
+# The host's /etc/fstab, copied there before each backup (see systemd/media-backup.service)
+stacks/monitoring/backup/fstab
 
 # Terraform: local state, provider cache and personal config (only the .example files are public)
 .terraform/

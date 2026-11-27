@@ -6,5 +6,9 @@ After=docker.service home-media@media.service home-media@monitoring.service
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/home-media-server/stacks/monitoring
+# A fresh copy of the host's mounts, which the backup picks up with the stacks folder. Copied rather
+# than mounted: Docker from the snap keeps the /etc/fstab it saw when it started, so after fstab is
+# edited, a mount of it points at a deleted file and the backup can't start.
+ExecStartPre=/bin/cp /etc/fstab backup/fstab
 ExecStart=/usr/bin/docker compose run --rm backup
 TimeoutStartSec=6h
